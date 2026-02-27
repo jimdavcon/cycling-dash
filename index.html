@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash PrecisionPro</title>
+    <title>CycleDash CleanLoad</title>
     
     <link rel="manifest" href="manifest.json">
     <meta name="mobile-web-app-capable" content="yes">
@@ -36,7 +36,7 @@
         .btn, .data-box { 
             background: rgba(255, 255, 255, 0.3); 
             border: 1px solid rgba(255, 255, 255, 0.1);
-            padding: 1px 4px; /* Reduced padding further */
+            padding: 1px 4px; 
             border-radius: 3px; 
             font-weight: bold; 
             color: #000;
@@ -47,30 +47,9 @@
         }
 
         .btn { font-size: 11px; cursor: pointer; }
-
-        .data-box { 
-            /* Optimized for %6.1 format (e.g. 1234.5) with standard spacing */
-            min-width: 72px; 
-            width: fit-content;
-            text-align: right; 
-            transition: background 0.3s; 
-            margin-bottom: 1px;
-            overflow: hidden;
-        }
-        .val-text { 
-            font-size: 14.5px; 
-            display: block; 
-            line-height: 1; 
-            letter-spacing: normal; /* Restored standard spacing */
-        } 
-        .label { 
-            font-size: 6.5px; 
-            display: block; 
-            opacity: 0.9; 
-            margin-bottom: 1px; 
-            white-space: nowrap; 
-            letter-spacing: normal;
-        }
+        .data-box { min-width: 72px; width: fit-content; text-align: right; transition: background 0.3s; margin-bottom: 1px; overflow: hidden; }
+        .val-text { font-size: 14.5px; display: block; line-height: 1; letter-spacing: normal; } 
+        .label { font-size: 6.5px; display: block; opacity: 0.9; margin-bottom: 1px; white-space: nowrap; }
 
         #recenter-btn { background: rgba(52, 152, 219, 0.3); color: white; display: none; }
         #reset-btn { background: rgba(231, 76, 60, 0.3); color: white; }
@@ -123,12 +102,11 @@
             type: 'line',
             data: { 
                 datasets: [
-                    { data: [], borderWidth: 3, pointRadius: 0, tension: 0, segment: { borderColor: ctx => {
+                    { data: [], borderWidth: 3, pointRadius: 0, tension: 0.1, segment: { borderColor: ctx => {
                         const p1 = ctx.p0.raw, p2 = ctx.p1.raw;
                         if (!p1 || !p2) return '#27ae60';
                         const dx = (p2.x - p1.x) * 1000, dy = p2.y - p1.y;
-                        if (dx <= 0) return '#27ae60';
-                        const grade = (dy / dx) * 100;
+                        const grade = (dx > 0) ? (dy / dx) * 100 : 0;
                         if (grade >= 10) return '#e74c3c';
                         if (grade >= 5) return '#f1c40f';
                         return '#27ae60';
@@ -187,17 +165,22 @@
         const line = geojson.features.find(f => f.geometry.type === 'LineString');
         if (!line) return;
 
-        const coords = line.geometry.coordinates;
-        const smoothedCoords = coords.map((c, i) => {
-            let sum = 0, count = 0;
-            for (let j = i - 3; j <= i + 3; j++) {
-                if (j >= 0 && j < coords.length) { sum += (coords[j][2] || 0); count++; }
+        const rawCoords = line.geometry.coordinates;
+        
+        // 9-point moving average preprocessing
+        const windowSize = 4;
+        const smoothedCoords = rawCoords.map((c, i) => {
+            let sumElev = 0, count = 0;
+            for (let j = i - windowSize; j <= i + windowSize; j++) {
+                if (j >= 0 && j < rawCoords.length) {
+                    sumElev += (rawCoords[j][2] || 0);
+                    count++;
+                }
             }
-            return [c[0], c[1], sum / count];
+            return [c[0], c[1], sumElev / count];
         });
 
-        routeGeoJson = JSON.parse(JSON.stringify(line));
-        routeGeoJson.geometry.coordinates = smoothedCoords;
+        routeGeoJson = { type: "Feature", geometry: { type: "LineString", coordinates: smoothedCoords } };
 
         let dist = 0, chartPoints = [];
         smoothedCoords.forEach((c, i) => {
@@ -245,16 +228,19 @@
                 snappedMarker.setLatLng([snapped.geometry.coordinates[1], snapped.geometry.coordinates[0]]);
                 chart.data.datasets[1].data = [{ x: currentDist, y: sElev }];
 
+                // Reverted to 50m window for Grade
                 const aheadDist = Math.min(totalDist, currentDist + 0.05);
                 const pAhead = turf.along(routeGeoJson, aheadDist, {units: 'kilometers'});
-                const run = (aheadDist - currentDist) * 1000;
-                const rise = (pAhead.geometry.coordinates[2] || 0) - sElev;
                 
-                let grade = (run > 0.5 && isFinite(rise)) ? (rise / run) * 100 : 0;
+                const elevAhead = pAhead.geometry.coordinates[2] || 0;
+                const runMeters = (aheadDist - currentDist) * 1000;
+                const riseMeters = elevAhead - sElev;
+                
+                let grade = (runMeters > 0.5) ? (riseMeters / runMeters) * 100 : 0;
+                
                 const gVal = document.getElementById('grade-val');
                 const gBox = document.getElementById('grade-box');
                 
-                // Final safety format
                 gVal.innerText = isFinite(grade) ? grade.toFixed(1) : "0.0";
                 
                 if (grade >= 10) gBox.style.background = 'rgba(231, 76, 60, 0.4)';
