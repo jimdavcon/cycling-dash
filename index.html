@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Horizontal</title>
+    <title>CycleDash Pro-Universal</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -12,46 +12,24 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/togeojson/0.16.0/togeojson.min.js"></script>
 
     <style>
-        :root { 
-            --sat: env(safe-area-inset-top, 0px); 
-            --sab: env(safe-area-inset-bottom, 0px); 
-        }
-
-        body, html { 
-            margin: 0; padding: 0; height: 100%; width: 100%; 
-            overflow: hidden; background: #1a1a1a; 
-            font-family: -apple-system, system-ui, sans-serif;
-        }
-
+        :root { --sat: env(safe-area-inset-top, 0px); --sab: env(safe-area-inset-bottom, 0px); }
+        body, html { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; background: #1a1a1a; font-family: -apple-system, system-ui, sans-serif; }
         #container { display: flex; flex-direction: column; height: 100vh; height: -webkit-fill-available; }
         #map { flex: 4; z-index: 1; background: #111; position: relative; }
-        #chart-container { 
-            flex: 1; background: white; border-top: 1px solid #333; 
-            padding: 2px; padding-bottom: var(--sab); 
-            box-sizing: border-box; 
-        }
+        #chart-container { flex: 1; background: white; border-top: 1px solid #333; padding: 2px; padding-bottom: var(--sab); box-sizing: border-box; }
 
-        /* Horizontal HUD Layout */
         #hud {
-            position: absolute; z-index: 2000; 
-            top: calc(5px + var(--sat)); left: 5px; right: 5px;
-            display: grid;
-            grid-template-columns: 1fr 1fr auto;
-            gap: 5px;
-            pointer-events: none;
+            position: absolute; z-index: 2000; top: calc(5px + var(--sat)); left: 5px; right: 5px;
+            display: grid; grid-template-columns: 1fr 1fr auto; gap: 5px; pointer-events: none;
         }
-        
         .hud-column { display: flex; flex-direction: column; gap: 3px; }
         .hud-column * { pointer-events: auto; }
 
         .btn, .data-box { 
-            background: rgba(255, 255, 255, 0.3); 
-            border: 0.5px solid rgba(0, 0, 0, 0.2); 
-            padding: 2px 5px; border-radius: 3px; 
-            font-weight: bold; color: #000; text-transform: uppercase;
+            background: rgba(255, 255, 255, 0.3); border: 0.5px solid rgba(0, 0, 0, 0.2); 
+            padding: 2px 5px; border-radius: 3px; font-weight: bold; color: #000; text-transform: uppercase;
             backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
         }
-
         .btn { font-size: 9px; cursor: pointer; text-align: center; min-width: 45px; padding: 3px; }
         .data-box { text-align: right; }
         .val-text { font-size: 15px; display: block; line-height: 1; font-family: monospace; } 
@@ -59,14 +37,7 @@
 
         #recenter-btn { background: rgba(52, 152, 219, 0.5); color: white; display: none; }
         #reset-btn { background: rgba(231, 76, 60, 0.5); color: white; }
-        
-        /* GPS Status Bottom Left */
-        #status { 
-            position: absolute; bottom: 5px; left: 5px; 
-            z-index: 2000; font-size: 9px; font-weight: bold;
-            color: #2ecc71; text-shadow: 1px 1px 1px #000;
-            pointer-events: none;
-        }
+        #status { position: absolute; bottom: 5px; left: 5px; z-index: 2000; font-size: 9px; font-weight: bold; color: #2ecc71; text-shadow: 1px 1px 1px #000; pointer-events: none; }
     </style>
 </head>
 <body>
@@ -77,12 +48,10 @@
             <div class="data-box"><span class="label">MPH</span><span class="val-text" id="speed-val">0.0</span></div>
             <div class="data-box"><span class="label">REMAIN</span><span class="val-text" id="remain-val">0.0</span></div>
         </div>
-
         <div class="hud-column">
             <div class="data-box"><span class="label">ELEV</span><span class="val-text" id="elev-val">---</span></div>
             <div id="grade-box" class="data-box"><span class="label">GRADE</span><span class="val-text" id="grade-val">0.0</span></div>
         </div>
-
         <div class="hud-column">
             <label class="btn">KML <input type="file" id="kml-upload" accept=".kml" style="display:none"></label>
             <button class="btn" id="fs-btn">FULL</button>
@@ -90,21 +59,15 @@
             <button class="btn" id="reset-btn">RESET</button>
         </div>
     </div>
-
-    <div id="map">
-        <div id="status">GPS: WAITING</div>
-    </div>
-    
+    <div id="map"><div id="status">GPS: WAITING</div></div>
     <div id="chart-container"><canvas id="elevationChart"></canvas></div>
 </div>
 
 <script>
-    let map, chart, userMarker, snappedMarker, routeGeoJson, kmlRouteLine;
+    let map, chart, userMarker, snappedMarker, routeGeoJson, kmlRouteLine, startMarker, endMarker;
     let isFollowing = true, currentDist = 0, totalDist = 0;
 
-    const METERS_TO_FEET = 3.28084;
-    const MPS_TO_MPH = 2.23694;
-    const FEET_LIMIT = 500;
+    const METERS_TO_FEET = 3.28084, MPS_TO_MPH = 2.23694, FEET_LIMIT = 500;
 
     function init() {
         map = L.map('map', { zoomControl: false, preferCanvas: true }).setView([0, 0], 2);
@@ -137,7 +100,6 @@
         };
 
         document.getElementById('reset-btn').onclick = () => { localStorage.clear(); location.reload(); };
-
         document.getElementById('kml-upload').onchange = (e) => {
             const reader = new FileReader();
             reader.onload = (ev) => { localStorage.setItem('cycling_kml_foss', ev.target.result); loadKml(ev.target.result); };
@@ -161,7 +123,6 @@
             document.getElementById('status').innerText = "GPS: OK";
             document.getElementById('speed-val').innerText = speed ? (speed * MPS_TO_MPH).toFixed(1) : "0.0";
             document.getElementById('elev-val').innerText = altitude ? Math.round(altitude * METERS_TO_FEET) : "---";
-            
             userMarker.setLatLng([lat, lng]);
             if (isFollowing) map.panTo([lat, lng], {animate: true});
 
@@ -174,8 +135,7 @@
                     const sElev = snapped.geometry.coordinates[2] || 0;
                     snappedMarker.setLatLng([snapped.geometry.coordinates[1], snapped.geometry.coordinates[0]]);
                     chart.data.datasets[1].data = [{ x: currentDist, y: sElev }];
-                    const lookAheadMi = 0.03; 
-                    const pAhead = turf.along(routeGeoJson, Math.min(totalDist, currentDist + lookAheadMi), {units: 'miles'});
+                    const lookAheadMi = 0.03, pAhead = turf.along(routeGeoJson, Math.min(totalDist, currentDist + lookAheadMi), {units: 'miles'});
                     const grade = (((pAhead.geometry.coordinates[2] - sElev) / (lookAheadMi * 5280)) * 100);
                     document.getElementById('grade-val').innerText = isFinite(grade) ? grade.toFixed(1) : "0.0";
                     document.getElementById('remain-val').innerText = Math.max(0, totalDist - currentDist).toFixed(1);
@@ -189,7 +149,6 @@
                 } else {
                     if (map.hasLayer(snappedMarker)) map.removeLayer(snappedMarker);
                     document.getElementById('grade-val').innerText = "OFF";
-                    document.getElementById('grade-box').style.background = 'rgba(255, 255, 255, 0.3)';
                 }
             }
         }, () => { document.getElementById('status').innerText = "GPS: LOST"; setTimeout(startGPS, 3000); }, options);
@@ -217,8 +176,16 @@
         totalDist = dist;
         chart.data.datasets[0].data = chartPoints;
         chart.update();
+
         if (kmlRouteLine) map.removeLayer(kmlRouteLine);
         kmlRouteLine = L.polyline(smoothedCoords.map(c => [c[1], c[0]]), { color: '#000', weight: 2, opacity: 0.6, dashArray: '3, 7' }).addTo(map);
+        
+        // Restore Start/End Markers
+        if (startMarker) map.removeLayer(startMarker);
+        if (endMarker) map.removeLayer(endMarker);
+        startMarker = L.circleMarker([smoothedCoords[0][1], smoothedCoords[0][0]], { radius: 6, color: '#27ae60', weight: 2, fillOpacity: 0.8 }).addTo(map);
+        endMarker = L.circleMarker([smoothedCoords[smoothedCoords.length-1][1], smoothedCoords[smoothedCoords.length-1][0]], { radius: 6, color: '#e74c3c', weight: 2, fillOpacity: 0.8 }).addTo(map);
+
         map.fitBounds(kmlRouteLine.getBounds());
     }
     window.onload = init;
