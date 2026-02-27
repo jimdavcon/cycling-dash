@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash SyncPro</title>
+    <title>CycleDash CompactPro</title>
     
     <link rel="manifest" href="manifest.json">
     <meta name="mobile-web-app-capable" content="yes">
@@ -28,29 +28,32 @@
             z-index: 1000; 
             display: flex; 
             flex-direction: column; 
-            gap: 5px; 
+            gap: 3px; /* Reduced gap between boxes */
         }
         #ui-left { left: 10px; }
         #ui-right { right: 10px; align-items: flex-end; }
         
+        /* Applied 20% font increase and 50% margin/padding reduction */
         .btn, .data-box { 
             background: rgba(255, 255, 255, 0.5); 
             border: 1px solid rgba(0, 0, 0, 0.1);
-            padding: 6px 10px; 
+            padding: 3px 6px; /* Reduced padding by 50% */
             border-radius: 4px; 
             font-weight: bold; 
-            font-size: 10px; 
             color: #111;
             backdrop-filter: blur(2px);
             -webkit-backdrop-filter: blur(2px);
             text-transform: uppercase;
         }
 
-        .data-box { font-size: 12px; min-width: 75px; text-align: right; transition: background 0.3s; }
-        .label { font-size: 7px; display: block; opacity: 0.7; }
+        .btn { font-size: 12px; cursor: pointer; } /* Increased from 10px (~20%) */
 
-        #recenter-btn { background: rgba(52, 152, 219, 0.5); color: white; display: none; cursor: pointer; }
-        #reset-btn { background: rgba(231, 76, 60, 0.5); color: white; cursor: pointer; }
+        .data-box { min-width: 85px; text-align: right; transition: background 0.3s; margin-bottom: 2px; }
+        .val-text { font-size: 14.5px; display: block; line-height: 1.1; } /* Increased from 12px (~20%) */
+        .label { font-size: 7px; display: block; opacity: 0.8; margin-bottom: 1px; }
+
+        #recenter-btn { background: rgba(52, 152, 219, 0.5); color: white; display: none; }
+        #reset-btn { background: rgba(231, 76, 60, 0.5); color: white; }
         #status { color: white; position: absolute; bottom: 26%; left: 10px; z-index: 1000; font-size: 8px; opacity: 0.5; }
     </style>
 </head>
@@ -65,10 +68,10 @@
     </div>
 
     <div id="ui-right">
-        <div class="data-box"><span class="label">SPEED</span><span id="speed-val">0.0</span> <small>km/h</small></div>
-        <div class="data-box"><span class="label">ELEV</span><span id="elev-val">0</span> <small>m</small></div>
-        <div id="grade-box" class="data-box"><span class="label">GRADE</span><span id="grade-val">0.0</span> <small>%</small></div>
-        <div class="data-box"><span class="label">REMAIN</span><span id="remain-val">0.0</span> <small>km</small></div>
+        <div class="data-box"><span class="label">SPEED (km/h)</span><span class="val-text" id="speed-val">0.0</span></div>
+        <div class="data-box"><span class="label">ELEV (m)</span><span class="val-text" id="elev-val">0</span></div>
+        <div id="grade-box" class="data-box"><span class="label">GRADE (%)</span><span class="val-text" id="grade-val">0.0</span></div>
+        <div class="data-box"><span class="label">REMAIN (km)</span><span class="val-text" id="remain-val">0.0</span></div>
     </div>
 
     <div id="status">WAITING...</div>
@@ -108,8 +111,8 @@
                                 const dx = (p2.x - p1.x) * 1000, dy = p2.y - p1.y;
                                 if (dx <= 0) return '#27ae60';
                                 const grade = (dy / dx) * 100;
-                                if (grade >= 3) return '#e74c3c';
-                                if (grade >= 1) return '#f1c40f';
+                                if (grade >= 10) return '#e74c3c';
+                                if (grade >= 5) return '#f1c40f';
                                 return '#27ae60';
                             }
                         }
@@ -231,23 +234,17 @@
                 currentDist = snapped.properties.location;
                 snappedMarker.setLatLng([snapped.geometry.coordinates[1], snapped.geometry.coordinates[0]]);
 
-                // Grade Calculation with NaN/Infinity protection
                 const aheadDist = Math.min(totalDist, currentDist + 0.05);
                 const pAhead = turf.along(routeGeoJson, aheadDist, {units: 'kilometers'});
-                
                 const elevNow = snapped.geometry.coordinates[2] || 0;
                 const elevAhead = pAhead.geometry.coordinates[2] || 0;
+                const run = (aheadDist - currentDist) * 1000;
+                const rise = elevAhead - elevNow;
                 
-                const run = (aheadDist - currentDist) * 1000; // meters
-                const rise = elevAhead - elevNow; // meters
-                
-                // Safety logic: check for valid numbers and distance > 0.5m
                 let grade = (run > 0.5 && isFinite(rise)) ? (rise / run) * 100 : 0;
-
                 const gVal = document.getElementById('grade-val');
                 const gBox = document.getElementById('grade-box');
                 
-                // Final safety format
                 const displayGrade = isFinite(grade) ? grade.toFixed(1) : "0.0";
                 gVal.innerText = displayGrade;
                 
