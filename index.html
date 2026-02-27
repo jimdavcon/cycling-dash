@@ -108,8 +108,8 @@
                                 const dx = (p2.x - p1.x) * 1000, dy = p2.y - p1.y;
                                 if (dx <= 0) return '#27ae60';
                                 const grade = (dy / dx) * 100;
-                                if (grade >= 10) return '#e74c3c';
-                                if (grade >= 5) return '#f1c40f';
+                                if (grade >= 3) return '#e74c3c';
+                                if (grade >= 1) return '#f1c40f';
                                 return '#27ae60';
                             }
                         }
