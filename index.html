@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash ProximityGate</title>
+    <title>CycleDash GradePro</title>
     
     <link rel="manifest" href="manifest.json">
     <meta name="mobile-web-app-capable" content="yes">
@@ -109,8 +109,9 @@
                         if (!p1 || !p2) return '#27ae60';
                         const dx = (p2.x - p1.x) * 5280, dy = p2.y - p1.y;
                         const grade = (dx > 0) ? (dy / dx) * 100 : 0;
-                        if (grade >= 10) return '#e74c3c';
-                        if (grade >= 5) return '#f1c40f';
+                        // NEW Thresholds: >6% Red, >3% Yellow, Else Green
+                        if (grade >= 6) return '#e74c3c';
+                        if (grade >= 3) return '#f1c40f';
                         return '#27ae60';
                     }}}, 
                     { data: [], pointRadius: 8, pointBackgroundColor: '#e67e22', pointBorderColor: '#fff', pointBorderWidth: 2, showLine: false }
@@ -172,10 +173,7 @@
         const smoothedCoords = rawCoords.map((c, i) => {
             let sumElev = 0, count = 0;
             for (let j = i - windowSize; j <= i + windowSize; j++) {
-                if (j >= 0 && j < rawCoords.length) {
-                    sumElev += (rawCoords[j][2] || 0);
-                    count++;
-                }
+                if (j >= 0 && j < rawCoords.length) { sumElev += (rawCoords[j][2] || 0); count++; }
             }
             return [c[0], c[1], (sumElev / count) * METERS_TO_FEET];
         });
@@ -229,17 +227,12 @@
             if (routeGeoJson) {
                 const userPt = turf.point([lng, lat]);
                 const snapped = turf.nearestPointOnLine(routeGeoJson, userPt, {units: 'miles'});
-                
-                // Calculate distance from route in feet
                 const distFromRouteFeet = turf.distance(userPt, snapped, {units: 'miles'}) * 5280;
 
                 if (distFromRouteFeet <= FEET_LIMIT) {
-                    // SHOW orange markers
                     if (!map.hasLayer(snappedMarker)) snappedMarker.addTo(map);
-                    
                     currentDist = snapped.properties.location;
                     const sElev = snapped.geometry.coordinates[2] || 0;
-                    
                     snappedMarker.setLatLng([snapped.geometry.coordinates[1], snapped.geometry.coordinates[0]]);
                     chart.data.datasets[1].data = [{ x: currentDist, y: sElev }];
 
@@ -255,17 +248,16 @@
                     document.getElementById('remain-val').innerText = Math.max(0, totalDist - currentDist).toFixed(1);
 
                     const gBox = document.getElementById('grade-box');
-                    if (grade >= 10) gBox.style.background = 'rgba(231, 76, 60, 0.4)';
-                    else if (grade >= 5) gBox.style.background = 'rgba(241, 196, 15, 0.4)';
+                    // Data box color also updated to match new logic
+                    if (grade >= 6) gBox.style.background = 'rgba(231, 76, 60, 0.4)';
+                    else if (grade >= 3) gBox.style.background = 'rgba(241, 196, 15, 0.4)';
                     else gBox.style.background = 'rgba(255, 255, 255, 0.3)';
 
                     updateChartWindow();
                 } else {
-                    // HIDE orange markers
                     if (map.hasLayer(snappedMarker)) map.removeLayer(snappedMarker);
                     chart.data.datasets[1].data = [];
                     chart.update('none');
-
                     document.getElementById('grade-val').innerText = "0.0";
                     document.getElementById('remain-val').innerText = "0.0";
                     document.getElementById('grade-box').style.background = 'rgba(255, 255, 255, 0.3)';
