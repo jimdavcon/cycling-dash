@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro-Universal</title>
+    <title>CycleDash Floating HUD</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -14,36 +14,52 @@
     <style>
         :root { --sat: env(safe-area-inset-top, 0px); --sab: env(safe-area-inset-bottom, 0px); }
         body, html { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; background: #1a1a1a; font-family: -apple-system, system-ui, sans-serif; }
-        #container { display: flex; flex-direction: column; height: 100vh; height: -webkit-fill-available; }
+        
+        #container { display: flex; flex-direction: column; height: 100vh; height: -webkit-fill-available; position: relative; }
         #map { flex: 4; z-index: 1; background: #111; position: relative; }
-        #chart-container { flex: 1; background: white; border-top: 1px solid #333; padding: 2px; padding-bottom: var(--sab); box-sizing: border-box; }
-
-        #hud {
-            position: absolute; z-index: 2000; top: calc(5px + var(--sat)); left: 5px; right: 5px;
-            display: grid; grid-template-columns: 1fr 1fr auto; gap: 5px; pointer-events: none;
+        
+        #chart-container { 
+            flex: 1; background: white; border-top: 1px solid #333; 
+            padding: 2px; padding-bottom: var(--sab); 
+            box-sizing: border-box; position: relative;
         }
+
+        /* Top Data HUD (Left and Middle) */
+        #hud-top {
+            position: absolute; z-index: 2000; top: calc(5px + var(--sat)); left: 5px; right: 5px;
+            display: grid; grid-template-columns: 1fr 1fr; gap: 5px; pointer-events: none;
+        }
+        
+        /* Lower Right Button Group (On top of graph) */
+        #hud-actions {
+            position: absolute; z-index: 3000; bottom: calc(10px + var(--sab)); right: 10px;
+            display: flex; flex-direction: column; gap: 4px; pointer-events: none;
+        }
+        
         .hud-column { display: flex; flex-direction: column; gap: 3px; }
-        .hud-column * { pointer-events: auto; }
+        .hud-column *, #hud-actions * { pointer-events: auto; }
 
         .btn, .data-box { 
             background: rgba(255, 255, 255, 0.3); border: 0.5px solid rgba(0, 0, 0, 0.2); 
             padding: 2px 5px; border-radius: 3px; font-weight: bold; color: #000; text-transform: uppercase;
             backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
         }
-        .btn { font-size: 9px; cursor: pointer; text-align: center; min-width: 45px; padding: 3px; }
+
+        .btn { font-size: 9px; cursor: pointer; text-align: center; min-width: 45px; padding: 4px; }
         .data-box { text-align: right; }
         .val-text { font-size: 15px; display: block; line-height: 1; font-family: monospace; } 
         .label { font-size: 7px; display: block; opacity: 0.8; line-height: 1; }
 
         #recenter-btn { background: rgba(52, 152, 219, 0.5); color: white; display: none; }
         #reset-btn { background: rgba(231, 76, 60, 0.5); color: white; }
+        
         #status { position: absolute; bottom: 5px; left: 5px; z-index: 2000; font-size: 9px; font-weight: bold; color: #2ecc71; text-shadow: 1px 1px 1px #000; pointer-events: none; }
     </style>
 </head>
 <body>
 
 <div id="container">
-    <div id="hud">
+    <div id="hud-top">
         <div class="hud-column">
             <div class="data-box"><span class="label">MPH</span><span class="val-text" id="speed-val">0.0</span></div>
             <div class="data-box"><span class="label">REMAIN</span><span class="val-text" id="remain-val">0.0</span></div>
@@ -52,13 +68,15 @@
             <div class="data-box"><span class="label">ELEV</span><span class="val-text" id="elev-val">---</span></div>
             <div id="grade-box" class="data-box"><span class="label">GRADE</span><span class="val-text" id="grade-val">0.0</span></div>
         </div>
-        <div class="hud-column">
-            <label class="btn">KML <input type="file" id="kml-upload" accept=".kml" style="display:none"></label>
-            <button class="btn" id="fs-btn">FULL</button>
-            <button class="btn" id="recenter-btn">RESUME</button>
-            <button class="btn" id="reset-btn">RESET</button>
-        </div>
     </div>
+
+    <div id="hud-actions">
+        <label class="btn">KML <input type="file" id="kml-upload" accept=".kml" style="display:none"></label>
+        <button class="btn" id="fs-btn">FULL</button>
+        <button class="btn" id="recenter-btn">RESUME</button>
+        <button class="btn" id="reset-btn">RESET</button>
+    </div>
+
     <div id="map"><div id="status">GPS: WAITING</div></div>
     <div id="chart-container"><canvas id="elevationChart"></canvas></div>
 </div>
@@ -158,14 +176,10 @@
         const geojson = toGeoJSON.kml(new DOMParser().parseFromString(xmlString, "text/xml"));
         const line = geojson.features.find(f => f.geometry.type === 'LineString');
         if (!line) return;
-        const rawCoords = line.geometry.coordinates;
-        const windowSize = 4;
-        const smoothedCoords = rawCoords.map((c, i) => {
-            let sumElev = 0, count = 0;
-            for (let j = i - windowSize; j <= i + windowSize; j++) {
-                if (j >= 0 && j < rawCoords.length) { sumElev += (rawCoords[j][2] || 0); count++; }
-            }
-            return [c[0], c[1], (sumElev / count) * METERS_TO_FEET];
+        const smoothedCoords = line.geometry.coordinates.map((c, i, arr) => {
+            const window = arr.slice(Math.max(0, i-4), Math.min(arr.length, i+5));
+            const avgElev = window.reduce((a, b) => a + (b[2] || 0), 0) / window.length;
+            return [c[0], c[1], avgElev * METERS_TO_FEET];
         });
         routeGeoJson = { type: "Feature", geometry: { type: "LineString", coordinates: smoothedCoords } };
         let dist = 0, chartPoints = [];
@@ -180,7 +194,6 @@
         if (kmlRouteLine) map.removeLayer(kmlRouteLine);
         kmlRouteLine = L.polyline(smoothedCoords.map(c => [c[1], c[0]]), { color: '#000', weight: 2, opacity: 0.6, dashArray: '3, 7' }).addTo(map);
         
-        // Restore Start/End Markers
         if (startMarker) map.removeLayer(startMarker);
         if (endMarker) map.removeLayer(endMarker);
         startMarker = L.circleMarker([smoothedCoords[0][1], smoothedCoords[0][0]], { radius: 6, color: '#27ae60', weight: 2, fillOpacity: 0.8 }).addTo(map);
