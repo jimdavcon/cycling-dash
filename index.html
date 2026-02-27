@@ -67,7 +67,7 @@
     <div id="ui-right">
         <div class="data-box"><span class="label">SPEED</span><span id="speed-val">0.0</span> <small>km/h</small></div>
         <div class="data-box"><span class="label">ELEV</span><span id="elev-val">0</span> <small>m</small></div>
-        <div id="grade-box" class="data-box"><span class="label">GRADE</span><span id="grade-val">0</span> <small>%</small></div>
+        <div id="grade-box" class="data-box"><span class="label">GRADE</span><span id="grade-val">0.0</span> <small>%</small></div>
         <div class="data-box"><span class="label">REMAIN</span><span id="remain-val">0.0</span> <small>km</small></div>
     </div>
 
@@ -88,12 +88,8 @@
         map = L.map('map', { zoomControl: false, tap: false }).setView([0, 0], 2);
         L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png').addTo(map);
 
-        // Real GPS Marker (Green)
         userMarker = L.circleMarker([0,0], { color: '#2ecc71', fillColor: '#27ae60', fillOpacity: 0.6, radius: 6 }).addTo(map);
-        
-        // Synced Route Marker (Orange)
         snappedMarker = L.circleMarker([0,0], { color: '#e67e22', fillColor: '#d35400', fillOpacity: 1, radius: 8, zIndexOffset: 1000 }).addTo(map);
-        
         trailLine = L.polyline([], { color: '#3498db', weight: 3, opacity: 0.5 }).addTo(map);
 
         chart = new Chart(document.getElementById('elevationChart'), {
@@ -112,13 +108,12 @@
                                 const dx = (p2.x - p1.x) * 1000, dy = p2.y - p1.y;
                                 if (dx <= 0) return '#27ae60';
                                 const grade = (dy / dx) * 100;
-                                if (grade >= 4) return '#e74c3c';
-                                if (grade >= 2) return '#f1c40f';
+                                if (grade >= 3) return '#e74c3c';
+                                if (grade >= 1) return '#f1c40f';
                                 return '#27ae60';
                             }
                         }
                     }, 
-                    // Orange marker on the graph
                     { data: [], pointRadius: 8, pointBackgroundColor: '#e67e22', pointBorderColor: '#fff', pointBorderWidth: 2, showLine: false, z: 20 }
                 ] 
             },
@@ -134,138 +129,4 @@
 
         map.on('moveend', () => {
             const bounds = map.getBounds();
-            const mapWidthMiles = turf.distance(
-                turf.point([bounds.getWest(), map.getCenter().lat]), 
-                turf.point([bounds.getEast(), map.getCenter().lat]), 
-                {units: 'miles'}
-            );
-            chartZoomRadius = mapWidthMiles / 2;
-            updateChartWindow();
-        });
-
-        map.on('movestart', (e) => { if (!e.hard) { isFollowing = false; document.getElementById('recenter-btn').style.display = 'block'; } });
-        document.getElementById('recenter-btn').onclick = () => { isFollowing = true; document.getElementById('recenter-btn').style.display = 'none'; };
-
-        const saved = localStorage.getItem('cycling_kml_foss');
-        navigator.geolocation.getCurrentPosition((pos) => {
-            if (saved) loadKml(saved); 
-            else map.fitBounds(L.latLng(pos.coords.latitude, pos.coords.longitude).toBounds(0.5 * MILES_TO_METERS));
-        });
-
-        document.getElementById('fullscreen-btn').onclick = () => {
-            if (!document.fullscreenElement) { document.documentElement.requestFullscreen(); }
-            else { document.exitFullscreen(); }
-        };
-
-        document.getElementById('kml-upload').onchange = (e) => {
-            const reader = new FileReader();
-            reader.onload = (ev) => { localStorage.setItem('cycling_kml_foss', ev.target.result); loadKml(ev.target.result); };
-            reader.readAsText(e.target.files[0]);
-        };
-
-        document.getElementById('reset-btn').onclick = () => { localStorage.removeItem('cycling_kml_foss'); location.reload(); };
-
-        startGPS();
-    }
-
-    function loadKml(xmlString) {
-        const geojson = toGeoJSON.kml(new DOMParser().parseFromString(xmlString, "text/xml"));
-        const line = geojson.features.find(f => f.geometry.type === 'LineString');
-        if (!line) return;
-
-        const coords = line.geometry.coordinates;
-        const smoothedCoords = coords.map((c, i) => {
-            let sum = 0, count = 0;
-            for (let j = i - 3; j <= i + 3; j++) {
-                if (j >= 0 && j < coords.length) { sum += coords[j][2] || 0; count++; }
-            }
-            return [c[0], c[1], sum / count];
-        });
-
-        routeGeoJson = JSON.parse(JSON.stringify(line));
-        routeGeoJson.geometry.coordinates = smoothedCoords;
-
-        let dist = 0, chartPoints = [];
-        smoothedCoords.forEach((c, i) => {
-            if (i > 0) dist += turf.distance(turf.point(smoothedCoords[i-1]), turf.point(c), {units: 'kilometers'});
-            chartPoints.push({ x: dist, y: c[2] });
-        });
-
-        totalDist = dist;
-        chart.data.datasets[0].data = chartPoints;
-        chart.update();
-
-        if (kmlRouteLine) map.removeLayer(kmlRouteLine);
-        if (startMarker) map.removeLayer(startMarker);
-        if (endMarker) map.removeLayer(endMarker);
-
-        kmlRouteLine = L.polyline(smoothedCoords.map(c => [c[1], c[0]]), { color: '#000', weight: 2, opacity: 0.4, dashArray: '5, 5' }).addTo(map);
-
-        const startPoint = [smoothedCoords[0][1], smoothedCoords[0][0]];
-        const endPoint = [smoothedCoords[smoothedCoords.length - 1][1], smoothedCoords[smoothedCoords.length - 1][0]];
-        startMarker = L.circleMarker(startPoint, { radius: 6, color: '#27ae60', weight: 2, fillOpacity: 0.8 }).addTo(map);
-        endMarker = L.circleMarker(endPoint, { radius: 6, color: '#e74c3c', weight: 2, fillOpacity: 0.8 }).addTo(map);
-
-        map.fitBounds(kmlRouteLine.getBounds(), { padding: [20, 20] });
-    }
-
-    function updateChartWindow() {
-        if (!routeGeoJson) return;
-        const radiusInKm = chartZoomRadius * MILES_TO_KM;
-        chart.options.scales.x.min = Math.max(0, currentDist - radiusInKm);
-        chart.options.scales.x.max = Math.max(radiusInKm * 2, currentDist + radiusInKm);
-        chart.update('none');
-    }
-
-    function startGPS() {
-        navigator.geolocation.watchPosition((pos) => {
-            const { latitude: lat, longitude: lng, speed, altitude } = pos.coords;
-            document.getElementById('speed-val').innerText = speed ? (speed * 3.6).toFixed(1) : "0.0";
-            document.getElementById('elev-val').innerText = altitude ? Math.round(altitude) : "0";
-            document.getElementById('status').innerText = `GPS: ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
-            
-            userMarker.setLatLng([lat, lng]);
-            if (isFollowing) map.panTo([lat, lng]);
-            
-            breadcrumbs.push({ lat, lng, time: Date.now() });
-            breadcrumbs = breadcrumbs.filter(b => Date.now() - b.time < 300000);
-            trailLine.setLatLngs(breadcrumbs.map(b => [b.lat, b.lng]));
-
-            if (routeGeoJson) {
-                const snapped = turf.nearestPointOnLine(routeGeoJson, turf.point([lng, lat]), {units: 'kilometers'});
-                currentDist = snapped.properties.location;
-                
-                // UPDATE ORANGE SNAPPED MARKER ON MAP
-                snappedMarker.setLatLng([snapped.geometry.coordinates[1], snapped.geometry.coordinates[0]]);
-
-                // Grade & Display
-                const aheadDist = Math.min(totalDist, currentDist + 0.05);
-                const pAhead = turf.along(routeGeoJson, aheadDist, {units: 'kilometers'});
-                const elevNow = snapped.geometry.coordinates[2];
-                const elevAhead = pAhead.geometry.coordinates[2];
-                const run = (aheadDist - currentDist) * 1000;
-                const rise = elevAhead - elevNow;
-                const grade = run > 0 ? (rise / run) * 100 : 0;
-
-                const gVal = document.getElementById('grade-val');
-                const gBox = document.getElementById('grade-box');
-                gVal.innerText = grade.toFixed(1);
-                
-                if (grade >= 10) gBox.style.background = 'rgba(231, 76, 60, 0.7)';
-                else if (grade >= 5) gBox.style.background = 'rgba(241, 196, 15, 0.7)';
-                else gBox.style.background = 'rgba(255, 255, 255, 0.5)';
-
-                document.getElementById('remain-val').innerText = Math.max(0, totalDist - currentDist).toFixed(1);
-
-                // UPDATE ORANGE MARKER ON CHART
-                chart.data.datasets[1].data = [{ x: currentDist, y: elevNow }];
-                updateChartWindow();
-            }
-        }, null, { enableHighAccuracy: true });
-        
-        if ('wakeLock' in navigator) { navigator.wakeLock.request('screen').catch(() => {}); }
-    }
-    window.onload = init;
-</script>
-</body>
-</html>
+            const mapWidthMiles = turf.distance
