@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash CleanLoad</title>
+    <title>CycleDash ImperialPro</title>
     
     <link rel="manifest" href="manifest.json">
     <meta name="mobile-web-app-capable" content="yes">
@@ -67,10 +67,10 @@
     </div>
 
     <div id="ui-right">
-        <div class="data-box"><span class="label">SPEED (km/h)</span><span class="val-text" id="speed-val">0.0</span></div>
-        <div class="data-box"><span class="label">ELEV (m)</span><span class="val-text" id="elev-val">0</span></div>
+        <div class="data-box"><span class="label">SPEED (mph)</span><span class="val-text" id="speed-val">0.0</span></div>
+        <div class="data-box"><span class="label">ELEV (ft)</span><span class="val-text" id="elev-val">0</span></div>
         <div id="grade-box" class="data-box"><span class="label">GRADE (%)</span><span class="val-text" id="grade-val">0.0</span></div>
-        <div class="data-box"><span class="label">REMAIN (km)</span><span class="val-text" id="remain-val">0.0</span></div>
+        <div class="data-box"><span class="label">REMAIN (mi)</span><span class="val-text" id="remain-val">0.0</span></div>
     </div>
 
     <div id="status">WAITING...</div>
@@ -82,8 +82,10 @@
     let map, chart, userMarker, snappedMarker, trailLine, kmlRouteLine, routeGeoJson;
     let breadcrumbs = [], isFollowing = true, currentDist = 0, totalDist = 0, chartZoomRadius = 0.5;
 
-    const MILES_TO_KM = 1.60934;
-    const MILES_TO_METERS = 1609.34;
+    // Conversion Constants
+    const METERS_TO_FEET = 3.28084;
+    const MPS_TO_MPH = 2.23694;
+    const KM_TO_MILES = 0.621371;
 
     function init() {
         map = L.map('map', { zoomControl: false, tap: false }).setView([0, 0], 2);
@@ -105,7 +107,7 @@
                     { data: [], borderWidth: 3, pointRadius: 0, tension: 0.1, segment: { borderColor: ctx => {
                         const p1 = ctx.p0.raw, p2 = ctx.p1.raw;
                         if (!p1 || !p2) return '#27ae60';
-                        const dx = (p2.x - p1.x) * 1000, dy = p2.y - p1.y;
+                        const dx = (p2.x - p1.x) * 5280, dy = p2.y - p1.y; // Miles to Feet for grade
                         const grade = (dx > 0) ? (dy / dx) * 100 : 0;
                         if (grade >= 10) return '#e74c3c';
                         if (grade >= 5) return '#f1c40f';
@@ -118,8 +120,8 @@
                 responsive: true, maintainAspectRatio: false, 
                 plugins: { legend: false }, 
                 scales: { 
-                    x: { type: 'linear', ticks: { font: { size: 8 } } }, 
-                    y: { ticks: { font: { size: 8 } } } 
+                    x: { type: 'linear', title: { display: true, text: 'Miles', font: { size: 8 } }, ticks: { font: { size: 8 } } }, 
+                    y: { title: { display: true, text: 'Feet', font: { size: 8 } }, ticks: { font: { size: 8 } } } 
                 } 
             }
         });
@@ -141,7 +143,7 @@
         const saved = localStorage.getItem('cycling_kml_foss');
         navigator.geolocation.getCurrentPosition((pos) => {
             if (saved) loadKml(saved); 
-            else map.fitBounds(L.latLng(pos.coords.latitude, pos.coords.longitude).toBounds(0.5 * MILES_TO_METERS));
+            else map.fitBounds(L.latLng(pos.coords.latitude, pos.coords.longitude).toBounds(1000));
         });
 
         document.getElementById('fullscreen-btn').onclick = () => {
@@ -177,14 +179,14 @@
                     count++;
                 }
             }
-            return [c[0], c[1], sumElev / count];
+            return [c[0], c[1], (sumElev / count) * METERS_TO_FEET]; // Convert elevation to Feet
         });
 
         routeGeoJson = { type: "Feature", geometry: { type: "LineString", coordinates: smoothedCoords } };
 
         let dist = 0, chartPoints = [];
         smoothedCoords.forEach((c, i) => {
-            if (i > 0) dist += turf.distance(turf.point(smoothedCoords[i-1]), turf.point(c), {units: 'kilometers'});
+            if (i > 0) dist += turf.distance(turf.point(smoothedCoords[i-1]), turf.point(c), {units: 'miles'});
             chartPoints.push({ x: dist, y: c[2] });
         });
 
@@ -200,17 +202,16 @@
 
     function updateChartWindow() {
         if (!routeGeoJson) return;
-        const radiusInKm = chartZoomRadius * MILES_TO_KM;
-        chart.options.scales.x.min = Math.max(0, currentDist - radiusInKm);
-        chart.options.scales.x.max = Math.max(radiusInKm * 2, currentDist + radiusInKm);
+        chart.options.scales.x.min = Math.max(0, currentDist - chartZoomRadius);
+        chart.options.scales.x.max = Math.max(chartZoomRadius * 2, currentDist + chartZoomRadius);
         chart.update('none');
     }
 
     function startGPS() {
         navigator.geolocation.watchPosition((pos) => {
             const { latitude: lat, longitude: lng, speed, altitude } = pos.coords;
-            document.getElementById('speed-val').innerText = speed ? (speed * 3.6).toFixed(1) : "0.0";
-            document.getElementById('elev-val').innerText = altitude ? Math.round(altitude) : "0";
+            document.getElementById('speed-val').innerText = speed ? (speed * MPS_TO_MPH).toFixed(1) : "0.0";
+            document.getElementById('elev-val').innerText = altitude ? Math.round(altitude * METERS_TO_FEET) : "0";
             document.getElementById('status').innerText = `GPS: ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
             
             userMarker.setLatLng([lat, lng]);
@@ -221,22 +222,23 @@
             trailLine.setLatLngs(breadcrumbs.map(b => [b.lat, b.lng]));
 
             if (routeGeoJson) {
-                const snapped = turf.nearestPointOnLine(routeGeoJson, turf.point([lng, lat]), {units: 'kilometers'});
+                const snapped = turf.nearestPointOnLine(routeGeoJson, turf.point([lng, lat]), {units: 'miles'});
                 currentDist = snapped.properties.location;
                 const sElev = snapped.geometry.coordinates[2] || 0;
                 
                 snappedMarker.setLatLng([snapped.geometry.coordinates[1], snapped.geometry.coordinates[0]]);
                 chart.data.datasets[1].data = [{ x: currentDist, y: sElev }];
 
-                // Reverted to 50m window for Grade
-                const aheadDist = Math.min(totalDist, currentDist + 0.05);
-                const pAhead = turf.along(routeGeoJson, aheadDist, {units: 'kilometers'});
+                // Grade logic (50m window in miles)
+                const lookAheadMi = 50 / 1609.34; 
+                const aheadDist = Math.min(totalDist, currentDist + lookAheadMi);
+                const pAhead = turf.along(routeGeoJson, aheadDist, {units: 'miles'});
                 
                 const elevAhead = pAhead.geometry.coordinates[2] || 0;
-                const runMeters = (aheadDist - currentDist) * 1000;
-                const riseMeters = elevAhead - sElev;
+                const runFeet = (aheadDist - currentDist) * 5280;
+                const riseFeet = elevAhead - sElev;
                 
-                let grade = (runMeters > 0.5) ? (riseMeters / runMeters) * 100 : 0;
+                let grade = (runFeet > 2) ? (riseFeet / runFeet) * 100 : 0;
                 
                 const gVal = document.getElementById('grade-val');
                 const gBox = document.getElementById('grade-box');
