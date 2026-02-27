@@ -45,7 +45,7 @@
             text-transform: uppercase;
         }
 
-        .data-box { font-size: 12px; min-width: 65px; text-align: right; }
+        .data-box { font-size: 12px; min-width: 70px; text-align: right; }
         .label { font-size: 7px; display: block; opacity: 0.7; }
 
         #recenter-btn { background: rgba(52, 152, 219, 0.5); color: white; display: none; cursor: pointer; }
@@ -66,6 +66,7 @@
     <div id="ui-right">
         <div class="data-box"><span class="label">SPEED</span><span id="speed-val">0.0</span> <small>km/h</small></div>
         <div class="data-box"><span class="label">ELEV</span><span id="elev-val">0</span> <small>m</small></div>
+        <div class="data-box"><span class="label">REMAIN</span><span id="remain-val">0.0</span> <small>km</small></div>
     </div>
 
     <div id="status">WAITING...</div>
@@ -75,10 +76,7 @@
 
 <script>
     let map, chart, userMarker, trailLine, kmlRouteLine, routeGeoJson;
-    let breadcrumbs = [];
-    let isFollowing = true;
-    let currentDist = 0;
-    let chartZoomRadius = 0.5; // Default miles
+    let breadcrumbs = [], isFollowing = true, currentDist = 0, totalDist = 0, chartZoomRadius = 0.5;
 
     const MILES_TO_KM = 1.60934;
     const MILES_TO_METERS = 1609.34;
@@ -150,10 +148,16 @@
         if (!line) return;
 
         const coords = line.geometry.coordinates;
+
+        // 7-Point Moving Average (3 points on either side)
         const smoothedCoords = coords.map((c, i) => {
-            let sum = c[2] || 0, count = 1;
-            if (i > 0) { sum += coords[i-1][2] || 0; count++; }
-            if (i < coords.length - 1) { sum += coords[i+1][2] || 0; count++; }
+            let sum = 0, count = 0;
+            for (let j = i - 3; j <= i + 3; j++) {
+                if (j >= 0 && j < coords.length) {
+                    sum += coords[j][2] || 0;
+                    count++;
+                }
+            }
             return [c[0], c[1], sum / count];
         });
 
@@ -166,6 +170,7 @@
             chartPoints.push({ x: dist, y: c[2] });
         });
 
+        totalDist = dist;
         chart.data.datasets[0].data = chartPoints;
         chart.update();
 
@@ -178,7 +183,7 @@
         if (!routeGeoJson) return;
         const radiusInKm = chartZoomRadius * MILES_TO_KM;
         chart.options.scales.x.min = Math.max(0, currentDist - radiusInKm);
-        chart.options.scales.x.max = currentDist + radiusInKm;
+        chart.options.scales.x.max = Math.max(radiusInKm * 2, currentDist + radiusInKm);
         chart.update('none');
     }
 
@@ -197,10 +202,13 @@
             trailLine.setLatLngs(breadcrumbs.map(b => [b.lat, b.lng]));
 
             if (routeGeoJson) {
-                // Find nearest point on the route for the chart marker
                 const snapped = turf.nearestPointOnLine(routeGeoJson, turf.point([lng, lat]), {units: 'kilometers'});
                 currentDist = snapped.properties.location;
-                // Update the Red Dot x (distance along path) and y (smoothed elevation)
+                
+                // Update Remaining Distance
+                const remaining = Math.max(0, totalDist - currentDist);
+                document.getElementById('remain-val').innerText = remaining.toFixed(1);
+
                 chart.data.datasets[1].data = [{ x: currentDist, y: snapped.geometry.coordinates[2] }];
                 updateChartWindow();
             }
