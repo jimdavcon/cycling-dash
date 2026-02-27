@@ -108,8 +108,8 @@
                         if (!p1 || !p2) return '#27ae60';
                         const dx = (p2.x - p1.x) * 5280, dy = p2.y - p1.y;
                         const grade = (dx > 0) ? (dy / dx) * 100 : 0;
-                        if (grade >= 10) return '#e74c3c';
-                        if (grade >= 5) return '#f1c40f';
+                        if (grade >= 3) return '#e74c3c';
+                        if (grade >= 1) return '#f1c40f';
                         return '#27ae60';
                     }}}, 
                     { data: [], pointRadius: 8, pointBackgroundColor: '#e67e22', pointBorderColor: '#fff', pointBorderWidth: 2, showLine: false }
@@ -254,8 +254,8 @@
                 
                 gVal.innerText = isFinite(grade) ? grade.toFixed(1) : "0.0";
                 
-                if (grade >= 10) gBox.style.background = 'rgba(231, 76, 60, 0.4)';
-                else if (grade >= 5) gBox.style.background = 'rgba(241, 196, 15, 0.4)';
+                if (grade >= 3) gBox.style.background = 'rgba(231, 76, 60, 0.4)';
+                else if (grade >= 1) gBox.style.background = 'rgba(241, 196, 15, 0.4)';
                 else gBox.style.background = 'rgba(255, 255, 255, 0.3)';
 
                 document.getElementById('remain-val').innerText = Math.max(0, totalDist - currentDist).toFixed(1);
