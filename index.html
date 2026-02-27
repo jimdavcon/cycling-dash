@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>CycleDash</title>
-    
     <link rel="manifest" href="manifest.json">
-    <meta name="theme-color" content="#3498db">
-    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3144/3144837.png">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -17,101 +17,70 @@
 
     <style>
         body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #1a1a1a; font-family: sans-serif; }
-        #container { display: flex; flex-direction: column; height: 100vh; }
+        #container { display: flex; flex-direction: column; height: 100vh; height: -webkit-fill-available; }
         #map { flex: 3; z-index: 1; }
         #chart-container { flex: 1; background: white; border-top: 2px solid #333; padding: 5px; box-sizing: border-box; }
-        
-        /* UI Overlays */
-        #ui-left { position: absolute; top: 10px; left: 10px; z-index: 1000; display: flex; flex-direction: column; gap: 5px; }
-        #ui-right { position: absolute; top: 10px; right: 10px; z-index: 1000; display: flex; flex-direction: column; gap: 5px; align-items: flex-end; }
-        
-        .btn, .data-box { 
-            background: rgba(255, 255, 255, 0.5); 
-            border: 1px solid rgba(0, 0, 0, 0.1);
-            padding: 6px 10px; 
-            border-radius: 4px; 
-            font-weight: bold; 
-            font-size: 10px; 
-            color: #111;
-            backdrop-filter: blur(2px);
-            text-align: center;
-            text-transform: uppercase;
-        }
-
-        .data-box { font-size: 12px; min-width: 60px; }
+        #ui-left { position: absolute; top: env(safe-area-inset-top, 10px); left: 10px; z-index: 1000; display: flex; flex-direction: column; gap: 5px; }
+        #ui-right { position: absolute; top: env(safe-area-inset-top, 10px); right: 10px; z-index: 1000; display: flex; flex-direction: column; gap: 5px; }
+        .btn, .data-box { background: rgba(255, 255, 255, 0.5); border: 1px solid rgba(0, 0, 0, 0.1); padding: 6px 10px; border-radius: 4px; font-weight: bold; font-size: 10px; color: #111; backdrop-filter: blur(2px); text-transform: uppercase; }
+        .data-box { font-size: 12px; min-width: 60px; text-align: right; }
         .label { font-size: 7px; display: block; opacity: 0.7; }
-
-        #recenter-btn { background: rgba(52, 152, 219, 0.5); color: white; display: none; cursor: pointer; }
-        #reset-btn { background: rgba(231, 76, 60, 0.5); color: white; cursor: pointer; }
-        #kml-label { cursor: pointer; }
-        
-        #status { color: white; position: absolute; bottom: 26%; left: 10px; z-index: 1000; font-size: 8px; opacity: 0.5; text-shadow: 1px 1px 1px black; }
+        #recenter-btn { background: rgba(52, 152, 219, 0.5); color: white; display: none; }
+        #reset-btn { background: rgba(231, 76, 60, 0.5); color: white; }
+        #status { color: white; position: absolute; bottom: 26%; left: 10px; z-index: 1000; font-size: 8px; opacity: 0.5; }
     </style>
 </head>
 <body>
-
 <div id="container">
     <div id="ui-left">
-        <label id="kml-label" class="btn">KML <input type="file" id="kml-upload" accept=".kml" style="display:none"></label>
+        <label class="btn">KML <input type="file" id="kml-upload" accept=".kml" style="display:none"></label>
+        <button class="btn" id="fullscreen-btn">FULL</button>
         <button class="btn" id="recenter-btn">RESUME</button>
         <button class="btn" id="reset-btn">RESET</button>
     </div>
-
     <div id="ui-right">
         <div class="data-box"><span class="label">SPEED</span><span id="speed-val">0.0</span> <small>km/h</small></div>
         <div class="data-box"><span class="label">ELEV</span><span id="elev-val">0</span> <small>m</small></div>
     </div>
-
     <div id="status">WAITING...</div>
     <div id="map"></div>
-    <div id="chart-container">
-        <canvas id="elevationChart"></canvas>
-    </div>
+    <div id="chart-container"><canvas id="elevationChart"></canvas></div>
 </div>
 
 <script>
-    let map, chart, userMarker, trailLine, kmlRouteLine;
-    let routeGeoJson = null;
-    let breadcrumbs = [];
-    let isFollowing = true;
+    let map, chart, userMarker, trailLine, kmlRouteLine, routeGeoJson, breadcrumbs = [], isFollowing = true;
     const MILES_TO_METERS = 1609.34;
 
     function init() {
         map = L.map('map', { zoomControl: false, tap: false }).setView([0, 0], 2);
         L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png').addTo(map);
-
         userMarker = L.circleMarker([0,0], { color: '#2ecc71', fillColor: '#27ae60', fillOpacity: 0.8, radius: 7 }).addTo(map);
         trailLine = L.polyline([], { color: '#3498db', weight: 3, opacity: 0.5 }).addTo(map);
 
-        const ctx = document.getElementById('elevationChart').getContext('2d');
-        chart = new Chart(ctx, {
+        chart = new Chart(document.getElementById('elevationChart'), {
             type: 'line',
-            data: {
-                labels: [],
-                datasets: [
-                    { data: [], borderColor: '#27ae60', backgroundColor: 'rgba(39,174,96,0.1)', fill: true, pointRadius: 0, tension: 0.2 },
-                    { data: [], pointRadius: 6, pointBackgroundColor: '#e74c3c', showLine: false }
-                ]
-            },
-            options: { 
-                responsive: true, maintainAspectRatio: false, 
-                plugins: { legend: { display: false } },
-                scales: { x: { ticks: { font: { size: 8 } } }, y: { ticks: { font: { size: 8 } } } }
-            }
+            data: { labels: [], datasets: [{ data: [], borderColor: '#27ae60', fill: true, pointRadius: 0 }, { data: [], pointRadius: 6, pointBackgroundColor: '#e74c3c', showLine: false }] },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: false }, scales: { x: { ticks: { font: { size: 8 } } }, y: { ticks: { font: { size: 8 } } } } }
         });
 
         map.on('movestart', (e) => { if (!e.hard) { isFollowing = false; document.getElementById('recenter-btn').style.display = 'block'; } });
         document.getElementById('recenter-btn').onclick = () => { isFollowing = true; document.getElementById('recenter-btn').style.display = 'none'; };
+        
+        const fsBtn = document.getElementById('fullscreen-btn');
+        fsBtn.onclick = () => {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(() => {});
+                fsBtn.innerText = "EXIT";
+            } else {
+                document.exitFullscreen();
+                fsBtn.innerText = "FULL";
+            }
+        };
 
         const saved = localStorage.getItem('cycling_kml_foss');
         navigator.geolocation.getCurrentPosition((pos) => {
-            const lat = pos.coords.latitude;
-            const lng = pos.coords.longitude;
-            if (saved) {
-                loadKml(saved);
-            } else {
-                map.fitBounds(L.latLng(lat, lng).toBounds(0.5 * MILES_TO_METERS));
-            }
+            if (saved) loadKml(saved); 
+            else map.fitBounds(L.latLng(pos.coords.latitude, pos.coords.longitude).toBounds(0.5 * MILES_TO_METERS));
         });
 
         document.getElementById('kml-upload').onchange = (e) => {
@@ -119,9 +88,7 @@
             reader.onload = (ev) => { localStorage.setItem('cycling_kml_foss', ev.target.result); loadKml(ev.target.result); };
             reader.readAsText(e.target.files[0]);
         };
-
         document.getElementById('reset-btn').onclick = () => { localStorage.removeItem('cycling_kml_foss'); location.reload(); };
-
         startGPS();
     }
 
@@ -129,43 +96,29 @@
         const geojson = toGeoJSON.kml(new DOMParser().parseFromString(xmlString, "text/xml"));
         const line = geojson.features.find(f => f.geometry.type === 'LineString');
         if (!line) return;
-
         routeGeoJson = line;
-        const coords = line.geometry.coordinates;
         let dist = 0, labels = [], elevs = [];
-
-        coords.forEach((c, i) => {
-            if (i > 0) dist += turf.distance(turf.point(coords[i-1]), turf.point(c));
-            labels.push(dist.toFixed(2));
-            elevs.push(c[2] || 0);
+        line.geometry.coordinates.forEach((c, i) => {
+            if (i > 0) dist += turf.distance(turf.point(line.geometry.coordinates[i-1]), turf.point(c));
+            labels.push(dist.toFixed(2)); elevs.push(c[2] || 0);
         });
-
-        chart.data.labels = labels;
-        chart.data.datasets[0].data = elevs;
-        chart.update();
-
+        chart.data.labels = labels; chart.data.datasets[0].data = elevs; chart.update();
         if (kmlRouteLine) map.removeLayer(kmlRouteLine);
-        kmlRouteLine = L.polyline(coords.map(c => [c[1], c[0]]), { color: '#000', weight: 2, opacity: 0.4, dashArray: '5, 5' }).addTo(map);
+        kmlRouteLine = L.polyline(line.geometry.coordinates.map(c => [c[1], c[0]]), { color: '#000', weight: 2, opacity: 0.4, dashArray: '5, 5' }).addTo(map);
         map.fitBounds(kmlRouteLine.getBounds(), { padding: [20, 20] });
     }
 
     function startGPS() {
         navigator.geolocation.watchPosition((pos) => {
             const { latitude: lat, longitude: lng, speed, altitude } = pos.coords;
-            const now = Date.now();
-            
-            // Update Data Displays (Speed in m/s to km/h)
             document.getElementById('speed-val').innerText = speed ? (speed * 3.6).toFixed(1) : "0.0";
             document.getElementById('elev-val').innerText = altitude ? Math.round(altitude) : "0";
             document.getElementById('status').innerText = `GPS: ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
-
             userMarker.setLatLng([lat, lng]);
             if (isFollowing) map.panTo([lat, lng]);
-
-            breadcrumbs.push({ lat, lng, time: now });
-            breadcrumbs = breadcrumbs.filter(b => now - b.time < 300000);
+            breadcrumbs.push({ lat, lng, time: Date.now() });
+            breadcrumbs = breadcrumbs.filter(b => Date.now() - b.time < 300000);
             trailLine.setLatLngs(breadcrumbs.map(b => [b.lat, b.lng]));
-
             if (routeGeoJson) {
                 const snapped = turf.nearestPointOnLine(routeGeoJson, turf.point([lng, lat]));
                 chart.data.datasets[1].data = [{ x: snapped.properties.location.toFixed(2), y: snapped.geometry.coordinates[2] }];
@@ -173,7 +126,6 @@
             }
         }, null, { enableHighAccuracy: true });
     }
-
     window.onload = init;
 </script>
 </body>
