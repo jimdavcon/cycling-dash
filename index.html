@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash</title>
+    <title>CycleDash Linked</title>
     <link rel="manifest" href="manifest.json">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -20,8 +20,8 @@
         #container { display: flex; flex-direction: column; height: 100vh; height: -webkit-fill-available; }
         #map { flex: 3; z-index: 1; }
         #chart-container { flex: 1; background: white; border-top: 2px solid #333; padding: 5px; box-sizing: border-box; }
-        #ui-left { position: absolute; top: env(safe-area-inset-top, 10px); left: 10px; z-index: 1000; display: flex; flex-direction: column; gap: 5px; }
-        #ui-right { position: absolute; top: env(safe-area-inset-top, 10px); right: 10px; z-index: 1000; display: flex; flex-direction: column; gap: 5px; }
+        #ui-left, #ui-right { position: absolute; top: env(safe-area-inset-top, 10px); z-index: 1000; display: flex; flex-direction: column; gap: 5px; }
+        #ui-left { left: 10px; } #ui-right { right: 10px; }
         .btn, .data-box { background: rgba(255, 255, 255, 0.5); border: 1px solid rgba(0, 0, 0, 0.1); padding: 6px 10px; border-radius: 4px; font-weight: bold; font-size: 10px; color: #111; backdrop-filter: blur(2px); text-transform: uppercase; }
         .data-box { font-size: 12px; min-width: 60px; text-align: right; }
         .label { font-size: 7px; display: block; opacity: 0.7; }
@@ -49,6 +49,9 @@
 
 <script>
     let map, chart, userMarker, trailLine, kmlRouteLine, routeGeoJson, breadcrumbs = [], isFollowing = true;
+    let currentDist = 0;
+    let chartZoomRadius = 0.5; // Default miles
+    const MILES_TO_KM = 1.60934;
     const MILES_TO_METERS = 1609.34;
 
     function init() {
@@ -59,22 +62,50 @@
 
         chart = new Chart(document.getElementById('elevationChart'), {
             type: 'line',
-            data: { labels: [], datasets: [{ data: [], borderColor: '#27ae60', fill: true, pointRadius: 0 }, { data: [], pointRadius: 6, pointBackgroundColor: '#e74c3c', showLine: false }] },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: false }, scales: { x: { ticks: { font: { size: 8 } } }, y: { ticks: { font: { size: 8 } } } } }
+            data: { 
+                datasets: [
+                    { data: [], borderColor: '#27ae60', fill: true, pointRadius: 0, tension: 0.1 }, 
+                    { data: [], pointRadius: 8, pointBackgroundColor: '#e74c3c', showLine: false }
+                ] 
+            },
+            options: { 
+                responsive: true, maintainAspectRatio: false, 
+                plugins: { legend: false }, 
+                scales: { 
+                    x: { type: 'linear', ticks: { font: { size: 8 } } }, 
+                    y: { ticks: { font: { size: 8 } } } 
+                } 
+            }
+        });
+
+        // Linked Zoom Logic
+        map.on('moveend', () => {
+            const bounds = map.getBounds();
+            const west = bounds.getWest();
+            const east = bounds.getEast();
+            const centerLat = map.getCenter().lat;
+            
+            // Calculate map width in miles
+            const p1 = turf.point([west, centerLat]);
+            const p2 = turf.point([east, centerLat]);
+            const mapWidthMiles = turf.distance(p1, p2, {units: 'miles'});
+            
+            // Sync: Elevation extent is 1/2 of map horizontal extent
+            chartZoomRadius = mapWidthMiles / 2;
+            updateChartWindow();
         });
 
         map.on('movestart', (e) => { if (!e.hard) { isFollowing = false; document.getElementById('recenter-btn').style.display = 'block'; } });
-        document.getElementById('recenter-btn').onclick = () => { isFollowing = true; document.getElementById('recenter-btn').style.display = 'none'; };
         
+        document.getElementById('recenter-btn').onclick = () => { 
+            isFollowing = true; 
+            document.getElementById('recenter-btn').style.display = 'none'; 
+        };
+
         const fsBtn = document.getElementById('fullscreen-btn');
         fsBtn.onclick = () => {
-            if (!document.fullscreenElement) {
-                document.documentElement.requestFullscreen().catch(() => {});
-                fsBtn.innerText = "EXIT";
-            } else {
-                document.exitFullscreen();
-                fsBtn.innerText = "FULL";
-            }
+            if (!document.fullscreenElement) { document.documentElement.requestFullscreen().catch(() => {}); fsBtn.innerText = "EXIT"; }
+            else { document.exitFullscreen(); fsBtn.innerText = "FULL"; }
         };
 
         const saved = localStorage.getItem('cycling_kml_foss');
@@ -88,7 +119,13 @@
             reader.onload = (ev) => { localStorage.setItem('cycling_kml_foss', ev.target.result); loadKml(ev.target.result); };
             reader.readAsText(e.target.files[0]);
         };
-        document.getElementById('reset-btn').onclick = () => { localStorage.removeItem('cycling_kml_foss'); location.reload(); };
+
+        document.getElementById('reset-btn').onclick = () => { 
+            localStorage.removeItem('cycling_kml_foss'); 
+            chartZoomRadius = 0.5; // Reset zoom logic
+            location.reload(); 
+        };
+
         startGPS();
     }
 
@@ -97,15 +134,24 @@
         const line = geojson.features.find(f => f.geometry.type === 'LineString');
         if (!line) return;
         routeGeoJson = line;
-        let dist = 0, labels = [], elevs = [];
+        let dist = 0, chartPoints = [];
         line.geometry.coordinates.forEach((c, i) => {
-            if (i > 0) dist += turf.distance(turf.point(line.geometry.coordinates[i-1]), turf.point(c));
-            labels.push(dist.toFixed(2)); elevs.push(c[2] || 0);
+            if (i > 0) dist += turf.distance(turf.point(line.geometry.coordinates[i-1]), turf.point(c), {units: 'kilometers'});
+            chartPoints.push({ x: dist, y: c[2] || 0 });
         });
-        chart.data.labels = labels; chart.data.datasets[0].data = elevs; chart.update();
+        chart.data.datasets[0].data = chartPoints;
+        chart.update();
         if (kmlRouteLine) map.removeLayer(kmlRouteLine);
         kmlRouteLine = L.polyline(line.geometry.coordinates.map(c => [c[1], c[0]]), { color: '#000', weight: 2, opacity: 0.4, dashArray: '5, 5' }).addTo(map);
         map.fitBounds(kmlRouteLine.getBounds(), { padding: [20, 20] });
+    }
+
+    function updateChartWindow() {
+        if (!routeGeoJson) return;
+        const radiusInKm = chartZoomRadius * MILES_TO_KM;
+        chart.options.scales.x.min = Math.max(0, currentDist - radiusInKm);
+        chart.options.scales.x.max = currentDist + radiusInKm;
+        chart.update('none');
     }
 
     function startGPS() {
@@ -114,15 +160,19 @@
             document.getElementById('speed-val').innerText = speed ? (speed * 3.6).toFixed(1) : "0.0";
             document.getElementById('elev-val').innerText = altitude ? Math.round(altitude) : "0";
             document.getElementById('status').innerText = `GPS: ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+            
             userMarker.setLatLng([lat, lng]);
             if (isFollowing) map.panTo([lat, lng]);
+            
             breadcrumbs.push({ lat, lng, time: Date.now() });
             breadcrumbs = breadcrumbs.filter(b => Date.now() - b.time < 300000);
             trailLine.setLatLngs(breadcrumbs.map(b => [b.lat, b.lng]));
+
             if (routeGeoJson) {
-                const snapped = turf.nearestPointOnLine(routeGeoJson, turf.point([lng, lat]));
-                chart.data.datasets[1].data = [{ x: snapped.properties.location.toFixed(2), y: snapped.geometry.coordinates[2] }];
-                chart.update('none');
+                const snapped = turf.nearestPointOnLine(routeGeoJson, turf.point([lng, lat]), {units: 'kilometers'});
+                currentDist = snapped.properties.location;
+                chart.data.datasets[1].data = [{ x: currentDist, y: snapped.geometry.coordinates[2] }];
+                updateChartWindow();
             }
         }, null, { enableHighAccuracy: true });
     }
