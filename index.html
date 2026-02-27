@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash RouteFixed</title>
+    <title>CycleDash ProximityGate</title>
     
     <link rel="manifest" href="manifest.json">
     <meta name="mobile-web-app-capable" content="yes">
@@ -80,11 +80,12 @@
 
 <script>
     let map, chart, userMarker, snappedMarker, trailLine, kmlRouteLine, routeGeoJson;
-    let startMarker, endMarker; // Restored variables
+    let startMarker, endMarker;
     let breadcrumbs = [], isFollowing = true, currentDist = 0, totalDist = 0, chartZoomRadius = 0.5;
 
     const METERS_TO_FEET = 3.28084;
     const MPS_TO_MPH = 2.23694;
+    const FEET_LIMIT = 500;
 
     function init() {
         map = L.map('map', { zoomControl: false, tap: false }).setView([0, 0], 2);
@@ -108,8 +109,8 @@
                         if (!p1 || !p2) return '#27ae60';
                         const dx = (p2.x - p1.x) * 5280, dy = p2.y - p1.y;
                         const grade = (dx > 0) ? (dy / dx) * 100 : 0;
-                        if (grade >= 3) return '#e74c3c';
-                        if (grade >= 1) return '#f1c40f';
+                        if (grade >= 10) return '#e74c3c';
+                        if (grade >= 5) return '#f1c40f';
                         return '#27ae60';
                     }}}, 
                     { data: [], pointRadius: 8, pointBackgroundColor: '#e67e22', pointBorderColor: '#fff', pointBorderWidth: 2, showLine: false }
@@ -191,22 +192,15 @@
         chart.data.datasets[0].data = chartPoints;
         chart.update();
 
-        // Map Route Visualization
         if (kmlRouteLine) map.removeLayer(kmlRouteLine);
         kmlRouteLine = L.polyline(smoothedCoords.map(c => [c[1], c[0]]), { color: '#000', weight: 2, opacity: 0.4, dashArray: '5, 5' }).addTo(map);
 
-        // RESTORED: Start/End Markers
         if (startMarker) map.removeLayer(startMarker);
         if (endMarker) map.removeLayer(endMarker);
-
         const startPt = [smoothedCoords[0][1], smoothedCoords[0][0]];
         const endPt = [smoothedCoords[smoothedCoords.length - 1][1], smoothedCoords[smoothedCoords.length - 1][0]];
-        
         startMarker = L.circleMarker(startPt, { radius: 7, color: '#27ae60', weight: 2, fillOpacity: 0.8, pane: 'markerPane' }).addTo(map);
         endMarker = L.circleMarker(endPt, { radius: 7, color: '#e74c3c', weight: 2, fillOpacity: 0.8, pane: 'markerPane' }).addTo(map);
-        
-        startMarker.getElement().style.zIndex = "990";
-        endMarker.getElement().style.zIndex = "990";
 
         map.fitBounds(kmlRouteLine.getBounds(), { padding: [20, 20] });
     }
@@ -233,33 +227,49 @@
             trailLine.setLatLngs(breadcrumbs.map(b => [b.lat, b.lng]));
 
             if (routeGeoJson) {
-                const snapped = turf.nearestPointOnLine(routeGeoJson, turf.point([lng, lat]), {units: 'miles'});
-                currentDist = snapped.properties.location;
-                const sElev = snapped.geometry.coordinates[2] || 0;
+                const userPt = turf.point([lng, lat]);
+                const snapped = turf.nearestPointOnLine(routeGeoJson, userPt, {units: 'miles'});
                 
-                snappedMarker.setLatLng([snapped.geometry.coordinates[1], snapped.geometry.coordinates[0]]);
-                chart.data.datasets[1].data = [{ x: currentDist, y: sElev }];
+                // Calculate distance from route in feet
+                const distFromRouteFeet = turf.distance(userPt, snapped, {units: 'miles'}) * 5280;
 
-                const lookAheadMi = 0.031; // ~50m in miles
-                const aheadDist = Math.min(totalDist, currentDist + lookAheadMi);
-                const pAhead = turf.along(routeGeoJson, aheadDist, {units: 'miles'});
-                
-                const elevAhead = pAhead.geometry.coordinates[2] || 0;
-                const runFeet = (aheadDist - currentDist) * 5280;
-                const riseFeet = elevAhead - sElev;
-                
-                let grade = (runFeet > 2) ? (riseFeet / runFeet) * 100 : 0;
-                const gVal = document.getElementById('grade-val');
-                const gBox = document.getElementById('grade-box');
-                
-                gVal.innerText = isFinite(grade) ? grade.toFixed(1) : "0.0";
-                
-                if (grade >= 3) gBox.style.background = 'rgba(231, 76, 60, 0.4)';
-                else if (grade >= 1) gBox.style.background = 'rgba(241, 196, 15, 0.4)';
-                else gBox.style.background = 'rgba(255, 255, 255, 0.3)';
+                if (distFromRouteFeet <= FEET_LIMIT) {
+                    // SHOW orange markers
+                    if (!map.hasLayer(snappedMarker)) snappedMarker.addTo(map);
+                    
+                    currentDist = snapped.properties.location;
+                    const sElev = snapped.geometry.coordinates[2] || 0;
+                    
+                    snappedMarker.setLatLng([snapped.geometry.coordinates[1], snapped.geometry.coordinates[0]]);
+                    chart.data.datasets[1].data = [{ x: currentDist, y: sElev }];
 
-                document.getElementById('remain-val').innerText = Math.max(0, totalDist - currentDist).toFixed(1);
-                updateChartWindow();
+                    const lookAheadMi = 0.031; 
+                    const aheadDist = Math.min(totalDist, currentDist + lookAheadMi);
+                    const pAhead = turf.along(routeGeoJson, aheadDist, {units: 'miles'});
+                    const elevAhead = pAhead.geometry.coordinates[2] || 0;
+                    const runFeet = (aheadDist - currentDist) * 5280;
+                    const riseFeet = elevAhead - sElev;
+                    
+                    let grade = (runFeet > 2) ? (riseFeet / runFeet) * 100 : 0;
+                    document.getElementById('grade-val').innerText = grade.toFixed(1);
+                    document.getElementById('remain-val').innerText = Math.max(0, totalDist - currentDist).toFixed(1);
+
+                    const gBox = document.getElementById('grade-box');
+                    if (grade >= 10) gBox.style.background = 'rgba(231, 76, 60, 0.4)';
+                    else if (grade >= 5) gBox.style.background = 'rgba(241, 196, 15, 0.4)';
+                    else gBox.style.background = 'rgba(255, 255, 255, 0.3)';
+
+                    updateChartWindow();
+                } else {
+                    // HIDE orange markers
+                    if (map.hasLayer(snappedMarker)) map.removeLayer(snappedMarker);
+                    chart.data.datasets[1].data = [];
+                    chart.update('none');
+
+                    document.getElementById('grade-val').innerText = "0.0";
+                    document.getElementById('remain-val').innerText = "0.0";
+                    document.getElementById('grade-box').style.background = 'rgba(255, 255, 255, 0.3)';
+                }
             }
         }, null, { enableHighAccuracy: true });
         
