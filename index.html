@@ -76,6 +76,7 @@
 
 <script>
     let map, chart, userMarker, trailLine, kmlRouteLine, routeGeoJson;
+    let startMarker, endMarker;
     let breadcrumbs = [], isFollowing = true, currentDist = 0, totalDist = 0, chartZoomRadius = 0.5;
 
     const MILES_TO_KM = 1.60934;
@@ -85,7 +86,7 @@
         map = L.map('map', { zoomControl: false, tap: false }).setView([0, 0], 2);
         L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png').addTo(map);
 
-        userMarker = L.circleMarker([0,0], { color: '#2ecc71', fillColor: '#27ae60', fillOpacity: 0.8, radius: 7 }).addTo(map);
+        userMarker = L.circleMarker([0,0], { color: '#2ecc71', fillColor: '#27ae60', fillOpacity: 1, radius: 8, zIndexOffset: 1000 }).addTo(map);
         trailLine = L.polyline([], { color: '#3498db', weight: 3, opacity: 0.5 }).addTo(map);
 
         chart = new Chart(document.getElementById('elevationChart'), {
@@ -174,8 +175,21 @@
         chart.data.datasets[0].data = chartPoints;
         chart.update();
 
+        // Remove old route and markers
         if (kmlRouteLine) map.removeLayer(kmlRouteLine);
+        if (startMarker) map.removeLayer(startMarker);
+        if (endMarker) map.removeLayer(endMarker);
+
+        // Add Route Line
         kmlRouteLine = L.polyline(smoothedCoords.map(c => [c[1], c[0]]), { color: '#000', weight: 2, opacity: 0.4, dashArray: '5, 5' }).addTo(map);
+
+        // ADD START/END MARKERS
+        const startPoint = [smoothedCoords[0][1], smoothedCoords[0][0]];
+        const endPoint = [smoothedCoords[smoothedCoords.length - 1][1], smoothedCoords[smoothedCoords.length - 1][0]];
+
+        startMarker = L.circleMarker(startPoint, { radius: 6, color: '#27ae60', weight: 2, fillOpacity: 0.8 }).addTo(map);
+        endMarker = L.circleMarker(endPoint, { radius: 6, color: '#e74c3c', weight: 2, fillOpacity: 0.8 }).addTo(map);
+
         map.fitBounds(kmlRouteLine.getBounds(), { padding: [20, 20] });
     }
 
@@ -205,7 +219,6 @@
                 const snapped = turf.nearestPointOnLine(routeGeoJson, turf.point([lng, lat]), {units: 'kilometers'});
                 currentDist = snapped.properties.location;
                 
-                // Update Remaining Distance
                 const remaining = Math.max(0, totalDist - currentDist);
                 document.getElementById('remain-val').innerText = remaining.toFixed(1);
 
