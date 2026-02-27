@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Universal Fixed</title>
+    <title>CycleDash TranslucentPro</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -12,7 +12,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/togeojson/0.16.0/togeojson.min.js"></script>
 
     <style>
-        /* CSS Overhaul: Use explicit safe-area fallbacks for Android/Chrome compatibility */
+        /* CSS Safe Area Setup */
         :root { 
             --sat: env(safe-area-inset-top, 0px); 
             --sab: env(safe-area-inset-bottom, 0px); 
@@ -38,30 +38,32 @@
             box-sizing: border-box; 
         }
 
-        /* Fixed UI Layer: Ensuring visibility on all browsers */
+        /* Fixed UI Layer */
         .ui-panel {
             position: absolute;
-            z-index: 2000; /* High Z-Index to stay above Map and Markers */
+            z-index: 2000; 
             top: calc(10px + var(--sat));
             display: flex;
             flex-direction: column;
             gap: 6px;
-            pointer-events: none; /* Allows map interaction through gaps */
+            pointer-events: none; 
         }
 
-        .ui-panel * { pointer-events: auto; } /* Re-enables interaction for buttons/boxes */
+        .ui-panel * { pointer-events: auto; } 
 
         #ui-left { left: 10px; align-items: flex-start; }
         #ui-right { right: 10px; align-items: flex-end; }
         
+        /* Updated: 30% opacity (70% transparent) and thinner borders */
         .btn, .data-box { 
-            background: rgba(255, 255, 255, 0.9); 
-            border: 1px solid #444; 
+            background: rgba(255, 255, 255, 0.3); 
+            border: 1px solid rgba(0, 0, 0, 0.2); 
             padding: 5px 10px; 
             border-radius: 6px; 
             font-weight: bold; color: #000; 
             text-transform: uppercase;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            backdrop-filter: blur(2px); /* Adds subtle readability blur */
+            -webkit-backdrop-filter: blur(2px);
         }
 
         .btn { font-size: 11px; cursor: pointer; text-align: center; min-width: 80px; }
@@ -69,7 +71,9 @@
         .val-text { font-size: 19px; display: block; line-height: 1.1; font-family: monospace; } 
         .label { font-size: 8px; display: block; opacity: 0.7; margin-bottom: 2px; }
 
-        #recenter-btn { background: #3498db; color: white; display: none; }
+        #recenter-btn { background: rgba(52, 152, 219, 0.5); color: white; display: none; }
+        #reset-btn { background: rgba(231, 76, 60, 0.5); color: white; }
+
         #status { 
             color: #2ecc71; position: absolute; bottom: 27%; left: 10px; 
             z-index: 2000; font-size: 10px; font-weight: bold; 
@@ -97,7 +101,7 @@
         <label class="btn">KML <input type="file" id="kml-upload" accept=".kml" style="display:none"></label>
         <button class="btn" id="fs-btn">FULLSCREEN</button>
         <button class="btn" id="recenter-btn">RESUME</button>
-        <button class="btn" id="reset-btn" style="background:#e74c3c; color:white;">RESET</button>
+        <button class="btn" id="reset-btn">RESET</button>
     </div>
 
     <div id="ui-right" class="ui-panel">
@@ -121,7 +125,6 @@
     const FEET_LIMIT = 500;
 
     function init() {
-        // Android fix: preferCanvas handles larger datasets better on mobile Chrome
         map = L.map('map', { zoomControl: false, preferCanvas: true }).setView([0, 0], 2);
         L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png').addTo(map);
 
@@ -151,7 +154,7 @@
             else document.exitFullscreen();
         };
 
-        document.getElementById('reset-btn').onclick = () => { localStorage.clear(); location.reload(); };
+        // document.getElementById('reset-btn').onclick = () => { localStorage.clear(); location.reload(); };
 
         document.getElementById('kml-upload').onchange = (e) => {
             const reader = new FileReader();
@@ -203,9 +206,10 @@
                     document.getElementById('remain-val').innerText = Math.max(0, totalDist - currentDist).toFixed(1);
                     
                     const gBox = document.getElementById('grade-box');
-                    if (grade >= 6) gBox.style.background = 'rgba(231, 76, 60, 0.9)';
-                    else if (grade >= 3) gBox.style.background = 'rgba(241, 196, 15, 0.9)';
-                    else gBox.style.background = 'rgba(255, 255, 255, 0.9)';
+                    // Data box color updated to match translucency logic (rgba 0.5 fallback for alert colors)
+                    if (grade >= 6) gBox.style.background = 'rgba(231, 76, 60, 0.5)';
+                    else if (grade >= 3) gBox.style.background = 'rgba(241, 196, 15, 0.5)';
+                    else gBox.style.background = 'rgba(255, 255, 255, 0.3)';
 
                     chart.options.scales.x.min = Math.max(0, currentDist - 0.5);
                     chart.options.scales.x.max = currentDist + 0.5;
@@ -215,6 +219,7 @@
                     chart.data.datasets[1].data = [];
                     chart.update('none');
                     document.getElementById('grade-val').innerText = "OFF";
+                    document.getElementById('grade-box').style.background = 'rgba(255, 255, 255, 0.3)';
                 }
             }
         };
@@ -253,7 +258,15 @@
         chart.update();
 
         if (kmlRouteLine) map.removeLayer(kmlRouteLine);
-        kmlRouteLine = L.polyline(smoothedCoords.map(c => [c[1], c[0]]), { color: '#000', weight: 3, opacity: 0.5 }).addTo(map);
+        
+        // Updated: Route is now a dashed black line
+        kmlRouteLine = L.polyline(smoothedCoords.map(c => [c[1], c[0]]), { 
+            color: '#000',     // Black
+            weight: 3, 
+            opacity: 0.6, 
+            dashArray: '5, 10' // Dashed pattern (dash length, gap length)
+        }).addTo(map);
+        
         map.fitBounds(kmlRouteLine.getBounds());
     }
 
