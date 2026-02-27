@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro-Universal</title>
+    <title>CycleDash Universal Fixed</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -12,30 +12,76 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/togeojson/0.16.0/togeojson.min.js"></script>
 
     <style>
-        :root { --sat: env(safe-area-inset-top); --sab: env(safe-area-inset-bottom); }
-        body, html { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; background: #1a1a1a; font-family: sans-serif; position: fixed; }
-        #container { display: flex; flex-direction: column; height: 100vh; height: -webkit-fill-available; }
-        #map { flex: 3; z-index: 1; background: #111; }
-        #chart-container { flex: 1; background: white; border-top: 2px solid #333; padding: 5px; padding-bottom: calc(5px + var(--sab)); box-sizing: border-box; }
-        
-        #ui-left, #ui-right { position: absolute; top: calc(10px + var(--sat)); z-index: 1000; display: flex; flex-direction: column; gap: 4px; }
-        #ui-left { left: 8px; }
-        #ui-right { right: 8px; align-items: flex-end; }
+        /* CSS Overhaul: Use explicit safe-area fallbacks for Android/Chrome compatibility */
+        :root { 
+            --sat: env(safe-area-inset-top, 0px); 
+            --sab: env(safe-area-inset-bottom, 0px); 
+        }
+
+        body, html { 
+            margin: 0; padding: 0; 
+            height: 100%; width: 100%; 
+            overflow: hidden; background: #1a1a1a; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        #container { 
+            display: flex; flex-direction: column; 
+            height: 100vh; height: -webkit-fill-available;
+        }
+
+        #map { flex: 3; z-index: 1; background: #111; position: relative; }
+
+        #chart-container { 
+            flex: 1; background: white; border-top: 2px solid #333; 
+            padding: 5px; padding-bottom: calc(5px + var(--sab)); 
+            box-sizing: border-box; 
+        }
+
+        /* Fixed UI Layer: Ensuring visibility on all browsers */
+        .ui-panel {
+            position: absolute;
+            z-index: 2000; /* High Z-Index to stay above Map and Markers */
+            top: calc(10px + var(--sat));
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            pointer-events: none; /* Allows map interaction through gaps */
+        }
+
+        .ui-panel * { pointer-events: auto; } /* Re-enables interaction for buttons/boxes */
+
+        #ui-left { left: 10px; align-items: flex-start; }
+        #ui-right { right: 10px; align-items: flex-end; }
         
         .btn, .data-box { 
-            background: rgba(255, 255, 255, 0.85); 
-            border: 1px solid #666; padding: 4px 8px; border-radius: 4px; 
-            font-weight: bold; color: #000; text-transform: uppercase;
+            background: rgba(255, 255, 255, 0.9); 
+            border: 1px solid #444; 
+            padding: 5px 10px; 
+            border-radius: 6px; 
+            font-weight: bold; color: #000; 
+            text-transform: uppercase;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
         }
-        .btn { font-size: 11px; cursor: pointer; text-align: center; }
-        .data-box { min-width: 85px; text-align: right; }
-        .val-text { font-size: 18px; display: block; line-height: 1.1; } 
-        .label { font-size: 8px; display: block; opacity: 0.7; }
+
+        .btn { font-size: 11px; cursor: pointer; text-align: center; min-width: 80px; }
+        .data-box { min-width: 90px; text-align: right; margin-bottom: 2px; }
+        .val-text { font-size: 19px; display: block; line-height: 1.1; font-family: monospace; } 
+        .label { font-size: 8px; display: block; opacity: 0.7; margin-bottom: 2px; }
 
         #recenter-btn { background: #3498db; color: white; display: none; }
-        #status { color: #2ecc71; position: absolute; bottom: 27%; left: 10px; z-index: 1000; font-size: 10px; font-weight: bold; text-shadow: 1px 1px 2px #000; }
+        #status { 
+            color: #2ecc71; position: absolute; bottom: 27%; left: 10px; 
+            z-index: 2000; font-size: 10px; font-weight: bold; 
+            text-shadow: 1px 1px 2px #000; pointer-events: none;
+        }
         
-        #gps-alert { position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); color:white; z-index:9999; display:none; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:20px; }
+        #gps-alert { 
+            position: fixed; top:0; left:0; width:100%; height:100%; 
+            background:rgba(0,0,0,0.95); color:white; z-index:9999; 
+            display:none; flex-direction:column; align-items:center; 
+            justify-content:center; text-align:center; padding:20px; 
+        }
     </style>
 </head>
 <body>
@@ -43,25 +89,25 @@
 <div id="gps-alert">
     <h2 style="color:#e74c3c">GPS UNAVAILABLE</h2>
     <p id="alert-msg">Please enable Location Services and Precise Accuracy.</p>
-    <button onclick="location.reload()" style="padding:12px 24px; background:#3498db; color:white; border:none; border-radius:5px; margin-top:15px;">RETRY</button>
+    <button onclick="location.reload()" style="padding:15px 30px; background:#3498db; color:white; border:none; border-radius:8px; font-weight:bold; margin-top:20px;">RETRY</button>
 </div>
 
 <div id="container">
-    <div id="ui-left">
+    <div id="ui-left" class="ui-panel">
         <label class="btn">KML <input type="file" id="kml-upload" accept=".kml" style="display:none"></label>
         <button class="btn" id="fs-btn">FULLSCREEN</button>
         <button class="btn" id="recenter-btn">RESUME</button>
         <button class="btn" id="reset-btn" style="background:#e74c3c; color:white;">RESET</button>
     </div>
 
-    <div id="ui-right">
+    <div id="ui-right" class="ui-panel">
         <div class="data-box"><span class="label">Speed (mph)</span><span class="val-text" id="speed-val">0.0</span></div>
         <div class="data-box"><span class="label">Elev (ft)</span><span class="val-text" id="elev-val">---</span></div>
         <div id="grade-box" class="data-box"><span class="label">Grade (%)</span><span class="val-text" id="grade-val">0.0</span></div>
         <div class="data-box"><span class="label">Remain (mi)</span><span class="val-text" id="remain-val">0.0</span></div>
     </div>
 
-    <div id="status">LOCATING SATELLITES...</div>
+    <div id="status">INITIATING GPS...</div>
     <div id="map"></div>
     <div id="chart-container"><canvas id="elevationChart"></canvas></div>
 </div>
@@ -75,11 +121,12 @@
     const FEET_LIMIT = 500;
 
     function init() {
+        // Android fix: preferCanvas handles larger datasets better on mobile Chrome
         map = L.map('map', { zoomControl: false, preferCanvas: true }).setView([0, 0], 2);
         L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png').addTo(map);
 
         userMarker = L.circleMarker([0,0], { color: '#2ecc71', fillColor: '#27ae60', fillOpacity: 0.9, radius: 8 }).addTo(map);
-        snappedMarker = L.circleMarker([0,0], { color: '#e67e22', fillColor: '#d35400', fillOpacity: 1, radius: 8, pane: 'markerPane' }).addTo(map);
+        snappedMarker = L.circleMarker([0,0], { color: '#e67e22', fillColor: '#d35400', fillOpacity: 1, radius: 8 }).addTo(map);
 
         chart = new Chart(document.getElementById('elevationChart'), {
             type: 'line',
@@ -99,9 +146,8 @@
             options: { responsive: true, maintainAspectRatio: false, plugins: { legend: false }, scales: { x: { type: 'linear', ticks: { font: { size: 8 } } }, y: { ticks: { font: { size: 8 } } } } }
         });
 
-        // UI Handlers
         document.getElementById('fs-btn').onclick = () => {
-            if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(e => alert("FS blocked"));
+            if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
             else document.exitFullscreen();
         };
 
@@ -120,11 +166,11 @@
         if (saved) loadKml(saved);
 
         startGPS();
-        setTimeout(() => map.invalidateSize(), 1000);
+        setTimeout(() => map.invalidateSize(), 500);
     }
 
     function startGPS() {
-        const options = { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 };
+        const options = { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 };
 
         const success = (pos) => {
             document.getElementById('gps-alert').style.display = 'none';
@@ -135,7 +181,7 @@
             document.getElementById('elev-val').innerText = altitude ? Math.round(altitude * METERS_TO_FEET) : "---";
             
             userMarker.setLatLng([lat, lng]);
-            if (isFollowing) map.panTo([lat, lng]);
+            if (isFollowing) map.panTo([lat, lng], {animate: true});
 
             if (routeGeoJson) {
                 const userPt = turf.point([lng, lat]);
@@ -149,19 +195,17 @@
                     snappedMarker.setLatLng([snapped.geometry.coordinates[1], snapped.geometry.coordinates[0]]);
                     chart.data.datasets[1].data = [{ x: currentDist, y: sElev }];
 
-                    const lookAheadMi = 0.031; 
-                    const aheadDist = Math.min(totalDist, currentDist + lookAheadMi);
-                    const pAhead = turf.along(routeGeoJson, aheadDist, {units: 'miles'});
-                    const elevAhead = pAhead.geometry.coordinates[2] || 0;
-                    const grade = (((elevAhead - sElev) / ((aheadDist - currentDist) * 5280)) * 100);
+                    const lookAheadMi = 0.03; 
+                    const pAhead = turf.along(routeGeoJson, Math.min(totalDist, currentDist + lookAheadMi), {units: 'miles'});
+                    const grade = (((pAhead.geometry.coordinates[2] - sElev) / (lookAheadMi * 5280)) * 100);
                     
                     document.getElementById('grade-val').innerText = isFinite(grade) ? grade.toFixed(1) : "0.0";
-                    document.getElementById('remain-val').innerText = (totalDist - currentDist).toFixed(1);
+                    document.getElementById('remain-val').innerText = Math.max(0, totalDist - currentDist).toFixed(1);
                     
                     const gBox = document.getElementById('grade-box');
-                    if (grade >= 6) gBox.style.background = 'rgba(231, 76, 60, 0.8)';
-                    else if (grade >= 3) gBox.style.background = 'rgba(241, 196, 15, 0.8)';
-                    else gBox.style.background = 'rgba(255, 255, 255, 0.8)';
+                    if (grade >= 6) gBox.style.background = 'rgba(231, 76, 60, 0.9)';
+                    else if (grade >= 3) gBox.style.background = 'rgba(241, 196, 15, 0.9)';
+                    else gBox.style.background = 'rgba(255, 255, 255, 0.9)';
 
                     chart.options.scales.x.min = Math.max(0, currentDist - 0.5);
                     chart.options.scales.x.max = currentDist + 0.5;
@@ -176,9 +220,8 @@
         };
 
         const error = (err) => {
-            document.getElementById('status').innerText = "RETRYING GPS...";
-            // Auto-retry every 5 seconds if signal is lost
-            setTimeout(startGPS, 5000);
+            document.getElementById('status').innerText = "SEARCHING FOR GPS...";
+            setTimeout(startGPS, 3000);
         };
 
         navigator.geolocation.watchPosition(success, error, options);
