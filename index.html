@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash CompactPro</title>
+    <title>CycleDash GlassPro</title>
     
     <link rel="manifest" href="manifest.json">
     <meta name="mobile-web-app-capable" content="yes">
@@ -28,33 +28,40 @@
             z-index: 1000; 
             display: flex; 
             flex-direction: column; 
-            gap: 3px; /* Reduced gap between boxes */
+            gap: 3px; 
         }
         #ui-left { left: 10px; }
         #ui-right { right: 10px; align-items: flex-end; }
         
-        /* Applied 20% font increase and 50% margin/padding reduction */
+        /* Transparency increased by 20% (Alpha 0.5 -> 0.3) */
         .btn, .data-box { 
-            background: rgba(255, 255, 255, 0.5); 
-            border: 1px solid rgba(0, 0, 0, 0.1);
-            padding: 3px 6px; /* Reduced padding by 50% */
+            background: rgba(255, 255, 255, 0.3); 
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 3px 6px; 
             border-radius: 4px; 
             font-weight: bold; 
-            color: #111;
-            backdrop-filter: blur(2px);
-            -webkit-backdrop-filter: blur(2px);
+            color: #000;
+            backdrop-filter: blur(3px);
+            -webkit-backdrop-filter: blur(3px);
             text-transform: uppercase;
         }
 
-        .btn { font-size: 12px; cursor: pointer; } /* Increased from 10px (~20%) */
+        .btn { font-size: 12px; cursor: pointer; }
 
-        .data-box { min-width: 85px; text-align: right; transition: background 0.3s; margin-bottom: 2px; }
-        .val-text { font-size: 14.5px; display: block; line-height: 1.1; } /* Increased from 12px (~20%) */
-        .label { font-size: 7px; display: block; opacity: 0.8; margin-bottom: 1px; }
+        .data-box { 
+            /* Width optimized for %6.1 formatting (e.g., 1234.5) */
+            min-width: 78px; 
+            width: fit-content;
+            text-align: right; 
+            transition: background 0.3s, opacity 0.3s; 
+            margin-bottom: 2px; 
+        }
+        .val-text { font-size: 14.5px; display: block; line-height: 1.1; } 
+        .label { font-size: 7px; display: block; opacity: 0.9; margin-bottom: 1px; white-space: nowrap; }
 
-        #recenter-btn { background: rgba(52, 152, 219, 0.5); color: white; display: none; }
-        #reset-btn { background: rgba(231, 76, 60, 0.5); color: white; }
-        #status { color: white; position: absolute; bottom: 26%; left: 10px; z-index: 1000; font-size: 8px; opacity: 0.5; }
+        #recenter-btn { background: rgba(52, 152, 219, 0.3); color: white; display: none; }
+        #reset-btn { background: rgba(231, 76, 60, 0.3); color: white; }
+        #status { color: white; position: absolute; bottom: 26%; left: 10px; z-index: 1000; font-size: 8px; opacity: 0.4; }
     </style>
 </head>
 <body>
@@ -248,9 +255,9 @@
                 const displayGrade = isFinite(grade) ? grade.toFixed(1) : "0.0";
                 gVal.innerText = displayGrade;
                 
-                if (grade >= 10) gBox.style.background = 'rgba(231, 76, 60, 0.7)';
-                else if (grade >= 5) gBox.style.background = 'rgba(241, 196, 15, 0.7)';
-                else gBox.style.background = 'rgba(255, 255, 255, 0.5)';
+                if (grade >= 10) gBox.style.background = 'rgba(231, 76, 60, 0.4)';
+                else if (grade >= 5) gBox.style.background = 'rgba(241, 196, 15, 0.4)';
+                else gBox.style.background = 'rgba(255, 255, 255, 0.3)';
 
                 document.getElementById('remain-val').innerText = Math.max(0, totalDist - currentDist).toFixed(1);
 
