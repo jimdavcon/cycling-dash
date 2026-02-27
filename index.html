@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash SyncRestore</title>
+    <title>CycleDash PrecisionPro</title>
     
     <link rel="manifest" href="manifest.json">
     <meta name="mobile-web-app-capable" content="yes">
@@ -28,31 +28,53 @@
             z-index: 1000; 
             display: flex; 
             flex-direction: column; 
-            gap: 3px; 
+            gap: 2px; 
         }
-        #ui-left { left: 10px; }
-        #ui-right { right: 10px; align-items: flex-end; }
+        #ui-left { left: 8px; }
+        #ui-right { right: 8px; align-items: flex-end; }
         
         .btn, .data-box { 
             background: rgba(255, 255, 255, 0.3); 
             border: 1px solid rgba(255, 255, 255, 0.1);
-            padding: 3px 6px; 
-            border-radius: 4px; 
+            padding: 1px 4px; /* Reduced padding further */
+            border-radius: 3px; 
             font-weight: bold; 
             color: #000;
             backdrop-filter: blur(3px);
             -webkit-backdrop-filter: blur(3px);
             text-transform: uppercase;
+            box-sizing: border-box;
         }
 
-        .btn { font-size: 12px; cursor: pointer; }
-        .data-box { min-width: 78px; width: fit-content; text-align: right; transition: background 0.3s; margin-bottom: 2px; }
-        .val-text { font-size: 14.5px; display: block; line-height: 1.1; } 
-        .label { font-size: 7px; display: block; opacity: 0.9; margin-bottom: 1px; white-space: nowrap; }
+        .btn { font-size: 11px; cursor: pointer; }
+
+        .data-box { 
+            /* Optimized for %6.1 format (e.g. 1234.5) with standard spacing */
+            min-width: 72px; 
+            width: fit-content;
+            text-align: right; 
+            transition: background 0.3s; 
+            margin-bottom: 1px;
+            overflow: hidden;
+        }
+        .val-text { 
+            font-size: 14.5px; 
+            display: block; 
+            line-height: 1; 
+            letter-spacing: normal; /* Restored standard spacing */
+        } 
+        .label { 
+            font-size: 6.5px; 
+            display: block; 
+            opacity: 0.9; 
+            margin-bottom: 1px; 
+            white-space: nowrap; 
+            letter-spacing: normal;
+        }
 
         #recenter-btn { background: rgba(52, 152, 219, 0.3); color: white; display: none; }
         #reset-btn { background: rgba(231, 76, 60, 0.3); color: white; }
-        #status { color: white; position: absolute; bottom: 26%; left: 10px; z-index: 1000; font-size: 8px; opacity: 0.4; }
+        #status { color: white; position: absolute; bottom: 26%; left: 8px; z-index: 1000; font-size: 7px; opacity: 0.4; }
     </style>
 </head>
 <body>
@@ -79,7 +101,6 @@
 
 <script>
     let map, chart, userMarker, snappedMarker, trailLine, kmlRouteLine, routeGeoJson;
-    let startMarker, endMarker;
     let breadcrumbs = [], isFollowing = true, currentDist = 0, totalDist = 0, chartZoomRadius = 0.5;
 
     const MILES_TO_KM = 1.60934;
@@ -89,18 +110,12 @@
         map = L.map('map', { zoomControl: false, tap: false }).setView([0, 0], 2);
         L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png').addTo(map);
 
-        // Raw GPS (Green)
         userMarker = L.circleMarker([0,0], { color: '#2ecc71', fillColor: '#27ae60', fillOpacity: 0.6, radius: 6 }).addTo(map);
-        
-        // Snapped to Route (Orange) - Ensure high Z-Index
         snappedMarker = L.circleMarker([0,0], { 
-            color: '#e67e22', 
-            fillColor: '#d35400', 
-            fillOpacity: 1, 
-            radius: 8, 
-            pane: 'markerPane' 
+            color: '#e67e22', fillColor: '#d35400', fillOpacity: 1, radius: 8, pane: 'markerPane' 
         }).addTo(map);
-        snappedMarker.getElement().style.zIndex = "1000";
+
+        setTimeout(() => { if(snappedMarker.getElement()) snappedMarker.getElement().style.zIndex = "1000"; }, 100);
 
         trailLine = L.polyline([], { color: '#3498db', weight: 3, opacity: 0.5 }).addTo(map);
 
@@ -108,34 +123,17 @@
             type: 'line',
             data: { 
                 datasets: [
-                    { 
-                        label: 'Elevation',
-                        data: [], 
-                        borderWidth: 3,
-                        pointRadius: 0, 
-                        tension: 0,
-                        segment: {
-                            borderColor: ctx => {
-                                const p1 = ctx.p0.raw, p2 = ctx.p1.raw;
-                                if (!p1 || !p2) return '#27ae60';
-                                const dx = (p2.x - p1.x) * 1000, dy = p2.y - p1.y;
-                                if (dx <= 0) return '#27ae60';
-                                const grade = (dy / dx) * 100;
-                                if (grade >= 10) return '#e74c3c';
-                                if (grade >= 5) return '#f1c40f';
-                                return '#27ae60';
-                            }
-                        }
-                    }, 
-                    { 
-                        label: 'Position',
-                        data: [], 
-                        pointRadius: 8, 
-                        pointBackgroundColor: '#e67e22', 
-                        pointBorderColor: '#fff', 
-                        pointBorderWidth: 2, 
-                        showLine: false 
-                    }
+                    { data: [], borderWidth: 3, pointRadius: 0, tension: 0, segment: { borderColor: ctx => {
+                        const p1 = ctx.p0.raw, p2 = ctx.p1.raw;
+                        if (!p1 || !p2) return '#27ae60';
+                        const dx = (p2.x - p1.x) * 1000, dy = p2.y - p1.y;
+                        if (dx <= 0) return '#27ae60';
+                        const grade = (dy / dx) * 100;
+                        if (grade >= 10) return '#e74c3c';
+                        if (grade >= 5) return '#f1c40f';
+                        return '#27ae60';
+                    }}}, 
+                    { data: [], pointRadius: 8, pointBackgroundColor: '#e67e22', pointBorderColor: '#fff', pointBorderWidth: 2, showLine: false }
                 ] 
             },
             options: { 
@@ -190,14 +188,10 @@
         if (!line) return;
 
         const coords = line.geometry.coordinates;
-        // Moving Average Smoothing
         const smoothedCoords = coords.map((c, i) => {
             let sum = 0, count = 0;
             for (let j = i - 3; j <= i + 3; j++) {
-                if (j >= 0 && j < coords.length) { 
-                    sum += (coords[j][2] || 0); 
-                    count++; 
-                }
+                if (j >= 0 && j < coords.length) { sum += (coords[j][2] || 0); count++; }
             }
             return [c[0], c[1], sum / count];
         });
@@ -216,15 +210,7 @@
         chart.update();
 
         if (kmlRouteLine) map.removeLayer(kmlRouteLine);
-        if (startMarker) map.removeLayer(startMarker);
-        if (endMarker) map.removeLayer(endMarker);
-
         kmlRouteLine = L.polyline(smoothedCoords.map(c => [c[1], c[0]]), { color: '#000', weight: 2, opacity: 0.4, dashArray: '5, 5' }).addTo(map);
-
-        const startPoint = [smoothedCoords[0][1], smoothedCoords[0][0]];
-        const endPoint = [smoothedCoords[smoothedCoords.length - 1][1], smoothedCoords[smoothedCoords.length - 1][0]];
-        startMarker = L.circleMarker(startPoint, { radius: 6, color: '#27ae60', weight: 2, fillOpacity: 0.8 }).addTo(map);
-        endMarker = L.circleMarker(endPoint, { radius: 6, color: '#e74c3c', weight: 2, fillOpacity: 0.8 }).addTo(map);
 
         map.fitBounds(kmlRouteLine.getBounds(), { padding: [20, 20] });
     }
@@ -252,31 +238,23 @@
             trailLine.setLatLngs(breadcrumbs.map(b => [b.lat, b.lng]));
 
             if (routeGeoJson) {
-                // Find point on line
                 const snapped = turf.nearestPointOnLine(routeGeoJson, turf.point([lng, lat]), {units: 'kilometers'});
                 currentDist = snapped.properties.location;
-
-                // Update Orange Map Marker
-                const sLat = snapped.geometry.coordinates[1];
-                const sLng = snapped.geometry.coordinates[0];
                 const sElev = snapped.geometry.coordinates[2] || 0;
                 
-                snappedMarker.setLatLng([sLat, sLng]);
-
-                // Update Orange Chart Marker
+                snappedMarker.setLatLng([snapped.geometry.coordinates[1], snapped.geometry.coordinates[0]]);
                 chart.data.datasets[1].data = [{ x: currentDist, y: sElev }];
 
-                // Grade logic
                 const aheadDist = Math.min(totalDist, currentDist + 0.05);
                 const pAhead = turf.along(routeGeoJson, aheadDist, {units: 'kilometers'});
-                const elevAhead = pAhead.geometry.coordinates[2] || 0;
                 const run = (aheadDist - currentDist) * 1000;
-                const rise = elevAhead - sElev;
+                const rise = (pAhead.geometry.coordinates[2] || 0) - sElev;
                 
                 let grade = (run > 0.5 && isFinite(rise)) ? (rise / run) * 100 : 0;
                 const gVal = document.getElementById('grade-val');
                 const gBox = document.getElementById('grade-box');
                 
+                // Final safety format
                 gVal.innerText = isFinite(grade) ? grade.toFixed(1) : "0.0";
                 
                 if (grade >= 10) gBox.style.background = 'rgba(231, 76, 60, 0.4)';
@@ -284,7 +262,6 @@
                 else gBox.style.background = 'rgba(255, 255, 255, 0.3)';
 
                 document.getElementById('remain-val').innerText = Math.max(0, totalDist - currentDist).toFixed(1);
-
                 updateChartWindow();
             }
         }, null, { enableHighAccuracy: true });
