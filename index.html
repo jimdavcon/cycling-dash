@@ -46,7 +46,7 @@
             text-transform: uppercase;
         }
 
-        .data-box { font-size: 12px; min-width: 75px; text-align: right; }
+        .data-box { font-size: 12px; min-width: 75px; text-align: right; transition: background 0.3s; }
         .label { font-size: 7px; display: block; opacity: 0.7; }
 
         #recenter-btn { background: rgba(52, 152, 219, 0.5); color: white; display: none; cursor: pointer; }
@@ -67,7 +67,7 @@
     <div id="ui-right">
         <div class="data-box"><span class="label">SPEED</span><span id="speed-val">0.0</span> <small>km/h</small></div>
         <div class="data-box"><span class="label">ELEV</span><span id="elev-val">0</span> <small>m</small></div>
-        <div class="data-box"><span class="label">GRADE</span><span id="grade-val">0</span> <small>%</small></div>
+        <div id="grade-box" class="data-box"><span class="label">GRADE</span><span id="grade-val">0</span> <small>%</small></div>
         <div class="data-box"><span class="label">REMAIN</span><span id="remain-val">0.0</span> <small>km</small></div>
     </div>
 
@@ -101,11 +101,12 @@
                         pointRadius: 0, 
                         tension: 0,
                         segment: {
+                            // Grade logic strictly using the smoothed chartPoints data
                             borderColor: ctx => {
                                 const p1 = ctx.p0.raw, p2 = ctx.p1.raw;
                                 if (!p1 || !p2) return '#27ae60';
                                 const dx = (p2.x - p1.x) * 1000, dy = p2.y - p1.y;
-                                if (dx === 0) return '#27ae60';
+                                if (dx <= 0) return '#27ae60'; // Handle flat/descents
                                 const grade = (dy / dx) * 100;
                                 if (grade >= 10) return '#e74c3c';
                                 if (grade >= 5) return '#f1c40f';
@@ -168,6 +169,7 @@
         if (!line) return;
 
         const coords = line.geometry.coordinates;
+        // 7-Point Moving Average calculation
         const smoothedCoords = coords.map((c, i) => {
             let sum = 0, count = 0;
             for (let j = i - 3; j <= i + 3; j++) {
@@ -229,16 +231,24 @@
                 const snapped = turf.nearestPointOnLine(routeGeoJson, turf.point([lng, lat]), {units: 'kilometers'});
                 currentDist = snapped.properties.location;
                 
-                // Calculate Grade: Compare current elev to elev 50 meters (0.05km) ahead
+                // Calculate Grade using smoothed data
                 const aheadDist = Math.min(totalDist, currentDist + 0.05);
                 const pAhead = turf.along(routeGeoJson, aheadDist, {units: 'kilometers'});
                 const elevNow = snapped.geometry.coordinates[2];
                 const elevAhead = pAhead.geometry.coordinates[2];
-                const run = (aheadDist - currentDist) * 1000; // meters
-                const rise = elevAhead - elevNow; // meters
+                const run = (aheadDist - currentDist) * 1000;
+                const rise = elevAhead - elevNow;
                 const grade = run > 0 ? (rise / run) * 100 : 0;
 
-                document.getElementById('grade-val').innerText = grade.toFixed(1);
+                const gVal = document.getElementById('grade-val');
+                const gBox = document.getElementById('grade-box');
+                gVal.innerText = grade.toFixed(1);
+                
+                // Dynamic Grade Box Coloring
+                if (grade >= 10) gBox.style.background = 'rgba(231, 76, 60, 0.7)';
+                else if (grade >= 5) gBox.style.background = 'rgba(241, 196, 15, 0.7)';
+                else gBox.style.background = 'rgba(255, 255, 255, 0.5)';
+
                 document.getElementById('remain-val').innerText = Math.max(0, totalDist - currentDist).toFixed(1);
 
                 chart.data.datasets[1].data = [{ x: currentDist, y: elevNow }];
