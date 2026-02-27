@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash GlassPro</title>
+    <title>CycleDash SyncRestore</title>
     
     <link rel="manifest" href="manifest.json">
     <meta name="mobile-web-app-capable" content="yes">
@@ -33,7 +33,6 @@
         #ui-left { left: 10px; }
         #ui-right { right: 10px; align-items: flex-end; }
         
-        /* Transparency increased by 20% (Alpha 0.5 -> 0.3) */
         .btn, .data-box { 
             background: rgba(255, 255, 255, 0.3); 
             border: 1px solid rgba(255, 255, 255, 0.1);
@@ -47,15 +46,7 @@
         }
 
         .btn { font-size: 12px; cursor: pointer; }
-
-        .data-box { 
-            /* Width optimized for %6.1 formatting (e.g., 1234.5) */
-            min-width: 78px; 
-            width: fit-content;
-            text-align: right; 
-            transition: background 0.3s, opacity 0.3s; 
-            margin-bottom: 2px; 
-        }
+        .data-box { min-width: 78px; width: fit-content; text-align: right; transition: background 0.3s; margin-bottom: 2px; }
         .val-text { font-size: 14.5px; display: block; line-height: 1.1; } 
         .label { font-size: 7px; display: block; opacity: 0.9; margin-bottom: 1px; white-space: nowrap; }
 
@@ -98,8 +89,19 @@
         map = L.map('map', { zoomControl: false, tap: false }).setView([0, 0], 2);
         L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png').addTo(map);
 
+        // Raw GPS (Green)
         userMarker = L.circleMarker([0,0], { color: '#2ecc71', fillColor: '#27ae60', fillOpacity: 0.6, radius: 6 }).addTo(map);
-        snappedMarker = L.circleMarker([0,0], { color: '#e67e22', fillColor: '#d35400', fillOpacity: 1, radius: 8, zIndexOffset: 1000 }).addTo(map);
+        
+        // Snapped to Route (Orange) - Ensure high Z-Index
+        snappedMarker = L.circleMarker([0,0], { 
+            color: '#e67e22', 
+            fillColor: '#d35400', 
+            fillOpacity: 1, 
+            radius: 8, 
+            pane: 'markerPane' 
+        }).addTo(map);
+        snappedMarker.getElement().style.zIndex = "1000";
+
         trailLine = L.polyline([], { color: '#3498db', weight: 3, opacity: 0.5 }).addTo(map);
 
         chart = new Chart(document.getElementById('elevationChart'), {
@@ -107,6 +109,7 @@
             data: { 
                 datasets: [
                     { 
+                        label: 'Elevation',
                         data: [], 
                         borderWidth: 3,
                         pointRadius: 0, 
@@ -124,7 +127,15 @@
                             }
                         }
                     }, 
-                    { data: [], pointRadius: 8, pointBackgroundColor: '#e67e22', pointBorderColor: '#fff', pointBorderWidth: 2, showLine: false, z: 20 }
+                    { 
+                        label: 'Position',
+                        data: [], 
+                        pointRadius: 8, 
+                        pointBackgroundColor: '#e67e22', 
+                        pointBorderColor: '#fff', 
+                        pointBorderWidth: 2, 
+                        showLine: false 
+                    }
                 ] 
             },
             options: { 
@@ -179,10 +190,14 @@
         if (!line) return;
 
         const coords = line.geometry.coordinates;
+        // Moving Average Smoothing
         const smoothedCoords = coords.map((c, i) => {
             let sum = 0, count = 0;
             for (let j = i - 3; j <= i + 3; j++) {
-                if (j >= 0 && j < coords.length) { sum += (coords[j][2] || 0); count++; }
+                if (j >= 0 && j < coords.length) { 
+                    sum += (coords[j][2] || 0); 
+                    count++; 
+                }
             }
             return [c[0], c[1], sum / count];
         });
@@ -237,23 +252,32 @@
             trailLine.setLatLngs(breadcrumbs.map(b => [b.lat, b.lng]));
 
             if (routeGeoJson) {
+                // Find point on line
                 const snapped = turf.nearestPointOnLine(routeGeoJson, turf.point([lng, lat]), {units: 'kilometers'});
                 currentDist = snapped.properties.location;
-                snappedMarker.setLatLng([snapped.geometry.coordinates[1], snapped.geometry.coordinates[0]]);
 
+                // Update Orange Map Marker
+                const sLat = snapped.geometry.coordinates[1];
+                const sLng = snapped.geometry.coordinates[0];
+                const sElev = snapped.geometry.coordinates[2] || 0;
+                
+                snappedMarker.setLatLng([sLat, sLng]);
+
+                // Update Orange Chart Marker
+                chart.data.datasets[1].data = [{ x: currentDist, y: sElev }];
+
+                // Grade logic
                 const aheadDist = Math.min(totalDist, currentDist + 0.05);
                 const pAhead = turf.along(routeGeoJson, aheadDist, {units: 'kilometers'});
-                const elevNow = snapped.geometry.coordinates[2] || 0;
                 const elevAhead = pAhead.geometry.coordinates[2] || 0;
                 const run = (aheadDist - currentDist) * 1000;
-                const rise = elevAhead - elevNow;
+                const rise = elevAhead - sElev;
                 
                 let grade = (run > 0.5 && isFinite(rise)) ? (rise / run) * 100 : 0;
                 const gVal = document.getElementById('grade-val');
                 const gBox = document.getElementById('grade-box');
                 
-                const displayGrade = isFinite(grade) ? grade.toFixed(1) : "0.0";
-                gVal.innerText = displayGrade;
+                gVal.innerText = isFinite(grade) ? grade.toFixed(1) : "0.0";
                 
                 if (grade >= 10) gBox.style.background = 'rgba(231, 76, 60, 0.4)';
                 else if (grade >= 5) gBox.style.background = 'rgba(241, 196, 15, 0.4)';
@@ -261,7 +285,6 @@
 
                 document.getElementById('remain-val').innerText = Math.max(0, totalDist - currentDist).toFixed(1);
 
-                chart.data.datasets[1].data = [{ x: currentDist, y: elevNow }];
                 updateChartWindow();
             }
         }, null, { enableHighAccuracy: true });
