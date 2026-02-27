@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Floating HUD</title>
+    <title>CycleDash CleanStack</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -12,73 +12,127 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/togeojson/0.16.0/togeojson.min.js"></script>
 
     <style>
-        :root { --sat: env(safe-area-inset-top, 0px); --sab: env(safe-area-inset-bottom, 0px); }
-        body, html { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; background: #1a1a1a; font-family: -apple-system, system-ui, sans-serif; }
-        
-        #container { display: flex; flex-direction: column; height: 100vh; height: -webkit-fill-available; position: relative; }
-        #map { flex: 4; z-index: 1; background: #111; position: relative; }
-        
-        #chart-container { 
-            flex: 1; background: white; border-top: 1px solid #333; 
-            padding: 2px; padding-bottom: var(--sab); 
-            box-sizing: border-box; position: relative;
+        :root { 
+            --sat: env(safe-area-inset-top, 0px); 
+            --sab: env(safe-area-inset-bottom, 0px); 
         }
 
-        /* Top Data HUD (Left and Middle) */
-        #hud-top {
-            position: absolute; z-index: 2000; top: calc(5px + var(--sat)); left: 5px; right: 5px;
-            display: grid; grid-template-columns: 1fr 1fr; gap: 5px; pointer-events: none;
+        body, html { 
+            margin: 0; padding: 0; height: 100%; width: 100%; 
+            overflow: hidden; background: #1a1a1a; 
+            font-family: -apple-system, system-ui, sans-serif;
         }
         
-        /* Lower Right Button Group (On top of graph) */
-        #hud-actions {
-            position: absolute; z-index: 3000; bottom: calc(10px + var(--sab)); right: 10px;
-            display: flex; flex-direction: column; gap: 4px; pointer-events: none;
-        }
+        #container { display: flex; flex-direction: column; height: 100vh; height: -webkit-fill-available; }
         
-        .hud-column { display: flex; flex-direction: column; gap: 3px; }
-        .hud-column *, #hud-actions * { pointer-events: auto; }
-
-        .btn, .data-box { 
-            background: rgba(255, 255, 255, 0.3); border: 0.5px solid rgba(0, 0, 0, 0.2); 
-            padding: 2px 5px; border-radius: 3px; font-weight: bold; color: #000; text-transform: uppercase;
-            backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+        /* TIER 1: TOP HUD (Separate from Map) */
+        #hud-header {
+            background: #222;
+            color: white;
+            padding-top: var(--sat);
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2px;
+            border-bottom: 1px solid #444;
+            z-index: 10;
         }
 
-        .btn { font-size: 9px; cursor: pointer; text-align: center; min-width: 45px; padding: 4px; }
-        .data-box { text-align: right; }
-        .val-text { font-size: 15px; display: block; line-height: 1; font-family: monospace; } 
-        .label { font-size: 7px; display: block; opacity: 0.8; line-height: 1; }
-
-        #recenter-btn { background: rgba(52, 152, 219, 0.5); color: white; display: none; }
-        #reset-btn { background: rgba(231, 76, 60, 0.5); color: white; }
+        .hud-column { display: flex; flex-direction: column; padding: 4px 8px; }
         
-        #status { position: absolute; bottom: 5px; left: 5px; z-index: 2000; font-size: 9px; font-weight: bold; color: #2ecc71; text-shadow: 1px 1px 1px #000; pointer-events: none; }
+        .data-row { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: baseline;
+            border-bottom: 1px solid #333;
+            padding: 2px 0;
+        }
+        .data-row:last-child { border-bottom: none; }
+
+        .label { font-size: 8px; font-weight: bold; color: #888; text-transform: uppercase; }
+        .val-text { font-size: 16px; font-weight: bold; font-family: monospace; color: #fff; }
+
+        /* TIER 2: MAP */
+        #map { flex: 4; background: #111; position: relative; }
+
+        /* TIER 3: BOTTOM TRAY */
+        #bottom-tray { 
+            display: flex; 
+            height: 120px; 
+            background: white; 
+            border-top: 1px solid #333;
+            padding-bottom: var(--sab);
+        }
+
+        #chart-section { 
+            flex: 0 0 80%; 
+            border-right: 1px solid #eee;
+            padding: 2px;
+            box-sizing: border-box;
+        }
+
+        #action-section { 
+            flex: 0 0 20%; 
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 4px;
+            background: #f1f1f1;
+            padding: 2px;
+            box-sizing: border-box;
+        }
+
+        .action-btn { 
+            font-size: 8px; cursor: pointer; text-align: center; 
+            width: 90%; padding: 5px 0;
+            background: #fff;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-weight: bold;
+            color: #333;
+            text-decoration: none;
+        }
+
+        #recenter-btn { background: #3498db; color: white; border: none; display: none; }
+        #reset-btn { background: #fdf2f2; color: #c0392b; border: 1px solid #f8d7da; }
+        
+        #status { 
+            position: absolute; bottom: 5px; left: 5px; 
+            z-index: 2000; font-size: 9px; font-weight: bold; 
+            color: #2ecc71; text-shadow: 1px 1px 1px #000; 
+            pointer-events: none; 
+        }
     </style>
 </head>
 <body>
 
 <div id="container">
-    <div id="hud-top">
+    <div id="hud-header">
         <div class="hud-column">
-            <div class="data-box"><span class="label">MPH</span><span class="val-text" id="speed-val">0.0</span></div>
-            <div class="data-box"><span class="label">REMAIN</span><span class="val-text" id="remain-val">0.0</span></div>
+            <div class="data-row"><span class="label">MPH</span><span class="val-text" id="speed-val">0.0</span></div>
+            <div class="data-row"><span class="label">REMAIN</span><span class="val-text" id="remain-val">0.0</span></div>
         </div>
         <div class="hud-column">
-            <div class="data-box"><span class="label">ELEV</span><span class="val-text" id="elev-val">---</span></div>
-            <div id="grade-box" class="data-box"><span class="label">GRADE</span><span class="val-text" id="grade-val">0.0</span></div>
+            <div class="data-row"><span class="label">ELEV</span><span class="val-text" id="elev-val">---</span></div>
+            <div id="grade-container" class="data-row"><span class="label">GRADE</span><span class="val-text" id="grade-val">0.0</span></div>
         </div>
     </div>
 
-    <div id="hud-actions">
-        <label class="btn">KML <input type="file" id="kml-upload" accept=".kml" style="display:none"></label>
-        <button class="btn" id="fs-btn">FULL</button>
-        <button class="btn" id="recenter-btn">RESUME</button>
-        <button class="btn" id="reset-btn">RESET</button>
+    <div id="map">
+        <div id="status">GPS: WAITING</div>
     </div>
 
-    <div id="map"><div id="status">GPS: WAITING</div></div>
-    <div id="chart-container"><canvas id="elevationChart"></canvas></div>
+    <div id="bottom-tray">
+        <div id="chart-section">
+            <canvas id="elevationChart"></canvas>
+        </div>
+        <div id="action-section">
+            <label class="action-btn">KML <input type="file" id="kml-upload" accept=".kml" style="display:none"></label>
+            <button class="action-btn" id="fs-btn">FULL</button>
+            <button class="action-btn" id="recenter-btn">RESUME</button>
+            <button class="action-btn" id="reset-btn">RESET</button>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -157,19 +211,18 @@
                     const grade = (((pAhead.geometry.coordinates[2] - sElev) / (lookAheadMi * 5280)) * 100);
                     document.getElementById('grade-val').innerText = isFinite(grade) ? grade.toFixed(1) : "0.0";
                     document.getElementById('remain-val').innerText = Math.max(0, totalDist - currentDist).toFixed(1);
-                    const gBox = document.getElementById('grade-box');
-                    if (grade >= 6) gBox.style.background = 'rgba(231, 76, 60, 0.4)';
-                    else if (grade >= 3) gBox.style.background = 'rgba(241, 196, 15, 0.4)';
-                    else gBox.style.background = 'rgba(255, 255, 255, 0.3)';
+                    
+                    const gText = document.getElementById('grade-val');
+                    if (grade >= 6) gText.style.color = '#ff6b6b';
+                    else if (grade >= 3) gText.style.color = '#ffd93d';
+                    else gText.style.color = '#fff';
+
                     chart.options.scales.x.min = Math.max(0, currentDist - 0.5);
                     chart.options.scales.x.max = currentDist + 0.5;
                     chart.update('none');
-                } else {
-                    if (map.hasLayer(snappedMarker)) map.removeLayer(snappedMarker);
-                    document.getElementById('grade-val').innerText = "OFF";
                 }
             }
-        }, () => { document.getElementById('status').innerText = "GPS: LOST"; setTimeout(startGPS, 3000); }, options);
+        }, () => { document.getElementById('status').innerText = "GPS: LOST"; }, options);
     }
 
     function loadKml(xmlString) {
@@ -190,15 +243,12 @@
         totalDist = dist;
         chart.data.datasets[0].data = chartPoints;
         chart.update();
-
         if (kmlRouteLine) map.removeLayer(kmlRouteLine);
         kmlRouteLine = L.polyline(smoothedCoords.map(c => [c[1], c[0]]), { color: '#000', weight: 2, opacity: 0.6, dashArray: '3, 7' }).addTo(map);
-        
         if (startMarker) map.removeLayer(startMarker);
         if (endMarker) map.removeLayer(endMarker);
         startMarker = L.circleMarker([smoothedCoords[0][1], smoothedCoords[0][0]], { radius: 6, color: '#27ae60', weight: 2, fillOpacity: 0.8 }).addTo(map);
         endMarker = L.circleMarker([smoothedCoords[smoothedCoords.length-1][1], smoothedCoords[smoothedCoords.length-1][0]], { radius: 6, color: '#e74c3c', weight: 2, fillOpacity: 0.8 }).addTo(map);
-
         map.fitBounds(kmlRouteLine.getBounds());
     }
     window.onload = init;
