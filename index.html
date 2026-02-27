@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro</title>
+    <title>CycleDash GradePro</title>
     
     <link rel="manifest" href="manifest.json">
     <meta name="mobile-web-app-capable" content="yes">
@@ -93,7 +93,29 @@
             type: 'line',
             data: { 
                 datasets: [
-                    { data: [], borderColor: '#27ae60', backgroundColor: 'rgba(39,174,96,0.1)', fill: true, pointRadius: 0, tension: 0.1 }, 
+                    { 
+                        data: [], 
+                        borderWidth: 3,
+                        pointRadius: 0, 
+                        tension: 0, // Set to 0 for accurate grade coloring per segment
+                        segment: {
+                            // SCRIPTABLE COLORING BASED ON GRADE
+                            borderColor: ctx => {
+                                const p1 = ctx.p0.raw;
+                                const p2 = ctx.p1.raw;
+                                if (!p1 || !p2) return '#27ae60';
+                                
+                                const dx = (p2.x - p1.x) * 1000; // distance in meters
+                                const dy = p2.y - p1.y; // elevation in meters
+                                if (dx === 0) return '#27ae60';
+                                
+                                const grade = (dy / dx) * 100;
+                                if (grade >= 10) return '#e74c3c'; // Red (>10%)
+                                if (grade >= 5) return '#f1c40f';  // Yellow (5-10%)
+                                return '#27ae60';                 // Green (<5%)
+                            }
+                        }
+                    }, 
                     { data: [], pointRadius: 8, pointBackgroundColor: '#e74c3c', showLine: false, z: 10 }
                 ] 
             },
@@ -175,15 +197,12 @@
         chart.data.datasets[0].data = chartPoints;
         chart.update();
 
-        // Remove old route and markers
         if (kmlRouteLine) map.removeLayer(kmlRouteLine);
         if (startMarker) map.removeLayer(startMarker);
         if (endMarker) map.removeLayer(endMarker);
 
-        // Add Route Line
         kmlRouteLine = L.polyline(smoothedCoords.map(c => [c[1], c[0]]), { color: '#000', weight: 2, opacity: 0.4, dashArray: '5, 5' }).addTo(map);
 
-        // ADD START/END MARKERS
         const startPoint = [smoothedCoords[0][1], smoothedCoords[0][0]];
         const endPoint = [smoothedCoords[smoothedCoords.length - 1][1], smoothedCoords[smoothedCoords.length - 1][0]];
 
@@ -218,7 +237,6 @@
             if (routeGeoJson) {
                 const snapped = turf.nearestPointOnLine(routeGeoJson, turf.point([lng, lat]), {units: 'kilometers'});
                 currentDist = snapped.properties.location;
-                
                 const remaining = Math.max(0, totalDist - currentDist);
                 document.getElementById('remain-val').innerText = remaining.toFixed(1);
 
