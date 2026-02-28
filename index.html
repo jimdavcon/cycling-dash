@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash VisibilityFix</title>
+    <title>CycleDash CenterSync</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -29,7 +29,7 @@
         #action-section { flex: 0 0 90px; display: flex; flex-direction: column; justify-content: space-evenly; align-items: center; background: #ececec; border-left: 1px solid #ccc; height: 100%; }
         
         .action-btn { font-size: 10px; cursor: pointer; text-align: center; width: 80px; padding: 10px 0; background: #fff; border: 1px solid #999; border-radius: 4px; font-weight: bold; color: #333; }
-        #recenter-btn { background: #3498db; color: white; border: none; display: none; }
+        #recenter-btn { background: #3498db; color: white; border: none; display: none; position: absolute; top: 10px; right: 10px; z-index: 1000; width: auto; padding: 8px 15px; }
         #reset-btn { background: #fee; color: #c0392b; border: 1px solid #fcc; }
         
         #status { position: absolute; bottom: 8px; left: 8px; z-index: 1000; font-size: 10px; color: #2ecc71; text-shadow: 1px 1px 1px #000; font-weight: bold; }
@@ -50,14 +50,16 @@
         </div>
     </div>
 
-    <div id="map"><div id="status">GPS: WAITING</div></div>
+    <div id="map">
+        <div id="status">GPS: WAITING</div>
+        <button class="action-btn" id="recenter-btn">RESUME TRACKING</button>
+    </div>
 
     <div id="bottom-tray">
         <div id="chart-section"><canvas id="elevationChart"></canvas></div>
         <div id="action-section">
             <label class="action-btn">KML <input type="file" id="kml-upload" accept=".kml" style="display:none"></label>
             <button class="action-btn" id="fs-btn">FULL</button>
-            <button class="action-btn" id="recenter-btn">RESUME</button>
             <button class="action-btn" id="reset-btn">RESET</button>
         </div>
     </div>
@@ -66,16 +68,16 @@
 <script>
     let map, chart, userMarker, snappedMarker, breadcrumbLine, routeGeoJson, kmlRouteLine;
     let isFollowing = true, totalDist = 0, routeData = [], breadcrumbCoords = [];
+    let lastLat, lastLng;
     const METERS_TO_FEET = 3.28084, MPS_TO_MPH = 2.23694, FEET_LIMIT = 500, WINDOW_MI = 0.25;
 
     function init() {
-        // SVG renderer is more reliable than Canvas in dynamic flex containers
         map = L.map('map', { zoomControl: false }).setView([0, 0], 2);
         L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png').addTo(map);
 
-        breadcrumbLine = L.polyline([], { color: '#3498db', weight: 4, opacity: 0.8 }).addTo(map);
-        userMarker = L.circleMarker([0,0], { color: '#2980b9', fillColor: '#3498db', fillOpacity: 0.9, radius: 7 }).addTo(map);
-        snappedMarker = L.circleMarker([0,0], { color: '#e67e22', fillColor: '#d35400', fillOpacity: 1, radius: 7 }).addTo(map);
+        breadcrumbLine = L.polyline([], { color: '#3498db', weight: 5, opacity: 0.7 }).addTo(map);
+        userMarker = L.circleMarker([0,0], { color: '#2980b9', fillColor: '#3498db', fillOpacity: 0.9, radius: 8 }).addTo(map);
+        snappedMarker = L.circleMarker([0,0], { color: '#e67e22', fillColor: '#d35400', fillOpacity: 1, radius: 6 }).addTo(map);
 
         const ctx = document.getElementById('elevationChart').getContext('2d');
         chart = new Chart(ctx, {
@@ -104,6 +106,18 @@
             else document.exitFullscreen();
         };
 
+        // Detect manual map movement to break "Follow Mode"
+        map.on('dragstart', () => {
+            isFollowing = false;
+            document.getElementById('recenter-btn').style.display = 'block';
+        });
+
+        document.getElementById('recenter-btn').onclick = () => {
+            isFollowing = true;
+            document.getElementById('recenter-btn').style.display = 'none';
+            if(lastLat && lastLng) map.setView([lastLat, lastLng], 16);
+        };
+
         window.addEventListener('resize', () => { 
             setTimeout(() => { map.invalidateSize(); chart.resize(); chart.update('none'); }, 200); 
         });
@@ -117,9 +131,6 @@
             };
             reader.readAsText(e.target.files[0]);
         };
-
-        map.on('movestart', (e) => { if (!e.hard) { isFollowing = false; document.getElementById('recenter-btn').style.display = 'block'; } });
-        document.getElementById('recenter-btn').onclick = () => { isFollowing = true; document.getElementById('recenter-btn').style.display = 'none'; };
 
         const saved = localStorage.getItem('cycling_kml_foss');
         if (saved) loadKml(saved);
@@ -142,6 +153,7 @@
     function startGPS() {
         navigator.geolocation.watchPosition((pos) => {
             const { latitude: lat, longitude: lng, speed, altitude } = pos.coords;
+            lastLat = lat; lastLng = lng;
             const curElev = altitude ? Math.round(altitude * METERS_TO_FEET) : 0;
             
             document.getElementById('status').innerText = "GPS: OK";
@@ -151,6 +163,11 @@
             userMarker.setLatLng([lat, lng]);
             breadcrumbCoords.push([lat, lng]);
             breadcrumbLine.setLatLngs(breadcrumbCoords);
+
+            // AUTO-CENTER LOGIC
+            if (isFollowing) {
+                map.setView([lat, lng], map.getZoom() < 10 ? 16 : map.getZoom(), { animate: true });
+            }
 
             if (routeGeoJson) {
                 const userPt = turf.point([lng, lat]);
@@ -172,24 +189,23 @@
                     
                     document.getElementById('remain-val').innerText = Math.max(0, totalDist - curDist).toFixed(1);
 
-                    if (isFollowing) {
-                        map.setView([lat, lng], 15, { animate: true, hard: true });
-                        const minX = curDist - WINDOW_MI, maxX = curDist + WINDOW_MI;
-                        chart.options.scales.x.min = minX;
-                        chart.options.scales.x.max = maxX;
-                        chart.data.datasets[1].data = [{ x: curDist, y: curElev || e1 }];
-                        
-                        const visible = routeData.filter(p => p.x >= minX && p.x <= maxX);
-                        if (visible.length > 0) {
-                            const eArr = visible.map(p => p.y);
-                            chart.options.scales.y.min = Math.min(...eArr) - 20;
-                            chart.options.scales.y.max = Math.max(...eArr) + 20;
-                        }
-                        chart.update('none');
+                    const minX = curDist - WINDOW_MI, maxX = curDist + WINDOW_MI;
+                    chart.options.scales.x.min = minX;
+                    chart.options.scales.x.max = maxX;
+                    chart.data.datasets[1].data = [{ x: curDist, y: curElev || e1 }];
+                    
+                    const visible = routeData.filter(p => p.x >= minX && p.x <= maxX);
+                    if (visible.length > 0) {
+                        const eArr = visible.map(p => p.y);
+                        chart.options.scales.y.min = Math.min(...eArr) - 20;
+                        chart.options.scales.y.max = Math.max(...eArr) + 20;
                     }
+                    chart.update('none');
                 }
             }
-        }, null, { enableHighAccuracy: true });
+        }, (err) => {
+            document.getElementById('status').innerText = "GPS: ERROR";
+        }, { enableHighAccuracy: true });
     }
 
     function loadKml(xmlString) {
@@ -199,7 +215,6 @@
             if (!line) return;
             
             const raw = line.geometry.coordinates;
-            // KML usually exports Lng/Lat/Elev. We smooth the elevation but keep [Lng, Lat] for Turf.
             const smoothed = raw.map((c, i) => {
                 const win = raw.slice(Math.max(0, i-2), Math.min(raw.length, i+3));
                 const avg = win.reduce((sum, pt) => sum + (pt[2] || 0), 0) / win.length;
@@ -214,22 +229,18 @@
                 routeData.push({x: d, y: smoothed[i][2]});
             }
             totalDist = d;
-
             chart.data.datasets[0].data = routeData;
             chart.update();
 
             if (kmlRouteLine) map.removeLayer(kmlRouteLine);
-            // Leaflet requires [Lat, Lng], so we flip the smoothed coordinates [1, 0]
             kmlRouteLine = L.polyline(smoothed.map(c => [c[1], c[0]]), { 
-                color: '#ff3300', 
-                weight: 4, 
-                opacity: 0.6,
-                zIndex: 400 
+                color: '#000000', 
+                weight: 3, 
+                opacity: 0.8,
+                dashArray: '8, 12'
             }).addTo(map);
 
-            map.fitBounds(kmlRouteLine.getBounds());
-            
-            // Critical: Force Leaflet to re-calculate its drawing layer after KML load
+            if (isFollowing) map.fitBounds(kmlRouteLine.getBounds());
             setTimeout(() => { map.invalidateSize(); }, 300);
 
         } catch(e) { console.error("KML Parse Error", e); }
