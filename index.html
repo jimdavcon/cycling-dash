@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash VisibilityPro</title>
+    <title>CycleDash CleanMarkers</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -75,15 +75,13 @@
         map = L.map('map', { zoomControl: false }).setView([0, 0], 2);
         L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png').addTo(map);
 
-        // Pre-initialize markers so they exist in the DOM/Map layers immediately
         breadcrumbLine = L.polyline([], { color: '#3498db', weight: 5, opacity: 0.6 }).addTo(map);
         
-        // Marker styles
-        const markerBase = { fillOpacity: 1, stroke: true, weight: 2, color: '#fff' };
-        startMarker = L.circleMarker([0,0], { ...markerBase, fillColor: '#2ecc71', radius: 8 }).addTo(map);
-        endMarker = L.circleMarker([0,0], { ...markerBase, fillColor: '#e74c3c', radius: 8 }).addTo(map);
-        snappedMarker = L.circleMarker([0,0], { ...markerBase, fillColor: '#f39c12', radius: 6 }).addTo(map);
-        userMarker = L.circleMarker([0,0], { ...markerBase, fillColor: '#3498db', radius: 10 }).addTo(map);
+        // Solid color markers with no white borders
+        startMarker = L.circleMarker([0,0], { stroke: false, fillOpacity: 1, fillColor: '#2ecc71', radius: 8 }).addTo(map);
+        endMarker = L.circleMarker([0,0], { stroke: false, fillOpacity: 1, fillColor: '#e74c3c', radius: 8 }).addTo(map);
+        snappedMarker = L.circleMarker([0,0], { stroke: false, fillOpacity: 1, fillColor: '#f39c12', radius: 6 }).addTo(map);
+        userMarker = L.circleMarker([0,0], { stroke: false, fillOpacity: 1, fillColor: '#3498db', radius: 7 }).addTo(map);
 
         const ctx = document.getElementById('elevationChart').getContext('2d');
         chart = new Chart(ctx, {
@@ -175,10 +173,8 @@
                 const snapped = turf.nearestPointOnLine(routeGeoJson, userPt, {units: 'miles'});
                 const curDist = snapped.properties.location;
 
-                // Update Snapped Marker
                 snappedMarker.setLatLng([snapped.geometry.coordinates[1], snapped.geometry.coordinates[0]]);
 
-                // Grade Calculation
                 const step = 0.01; 
                 const e1 = getElevAtDist(curDist);
                 const e2 = getElevAtDist(curDist + step);
@@ -189,7 +185,6 @@
                 gradeEl.style.color = grade >= 6 ? "#e74c3c" : (grade >= 3 ? "#f1c40f" : "#fff");
                 document.getElementById('remain-val').innerText = Math.max(0, totalDist - curDist).toFixed(1);
 
-                // Update Chart
                 const minX = curDist - WINDOW_MI, maxX = curDist + WINDOW_MI;
                 chart.options.scales.x.min = minX;
                 chart.options.scales.x.max = maxX;
@@ -228,7 +223,6 @@
             }
             totalDist = d;
 
-            // Set Start/End Marker positions
             startMarker.setLatLng([smoothed[0][1], smoothed[0][0]]);
             endMarker.setLatLng([smoothed[smoothed.length-1][1], smoothed[smoothed.length-1][0]]);
 
@@ -240,7 +234,7 @@
                 color: '#000000', weight: 3, opacity: 0.8, dashArray: '8, 12'
             }).addTo(map);
 
-            map.fitBounds(kmlRouteLine.getBounds());
+            if (isFollowing) map.fitBounds(kmlRouteLine.getBounds());
             setTimeout(() => { map.invalidateSize(); }, 500);
 
         } catch(e) { console.error("KML Parse Error", e); }
