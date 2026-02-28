@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash GluedLayout</title>
+    <title>CycleDash VisiblePro</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -12,80 +12,21 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/togeojson/0.16.0/togeojson.min.js"></script>
 
     <style>
-        :root { 
-            --sat: env(safe-area-inset-top, 0px); 
-            --sab: env(safe-area-inset-bottom, 0px); 
-        }
-
-        body, html { 
-            margin: 0; padding: 0; 
-            height: 100svh; width: 100%; 
-            overflow: hidden; background: #1a1a1a; 
-            font-family: -apple-system, system-ui, sans-serif;
-        }
-        
-        #container { 
-            display: flex; 
-            flex-direction: column; 
-            height: 100svh;
-        }
-        
-        #hud-header { 
-            background: #222; color: white; 
-            padding-top: var(--sat); 
-            display: grid; grid-template-columns: 1fr 1fr; 
-            border-bottom: 1px solid #444; flex-shrink: 0;
-        }
-
+        :root { --sat: env(safe-area-inset-top, 0px); --sab: env(safe-area-inset-bottom, 0px); }
+        body, html { margin: 0; padding: 0; height: 100svh; width: 100%; overflow: hidden; background: #1a1a1a; font-family: -apple-system, system-ui, sans-serif; }
+        #container { display: flex; flex-direction: column; height: 100svh; }
+        #hud-header { background: #222; color: white; padding-top: var(--sat); display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid #444; flex-shrink: 0; }
         .hud-column { display: flex; flex-direction: column; padding: 8px 12px; }
         .data-row { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #333; padding: 2px 0; }
         .label { font-size: 10px; font-weight: bold; color: #888; }
         .val-text { font-size: 20px; font-weight: bold; font-family: monospace; color: #fff; }
-
-        #map { 
-            flex-grow: 1; 
-            background: #111; position: relative; 
-        }
-
-        /* Fixed Tray at bottom */
-        #bottom-tray { 
-            display: flex; 
-            height: 150px; 
-            background: white; 
-            border-top: 2px solid #333; 
-            padding-bottom: var(--sab); 
-            flex-shrink: 0;
-            width: 100%;
-        }
-
-        /* Graph takes all remaining space */
-        #chart-section { 
-            flex: 1; 
-            min-width: 0; /* Prevents flex items from overflowing */
-            position: relative;
-            padding: 5px;
-        }
-
-        /* Buttons fixed to the right */
-        #action-section { 
-            flex: 0 0 85px; /* Fixed width to ensure buttons fit */
-            display: flex; 
-            flex-direction: column; 
-            justify-content: space-evenly; 
-            align-items: center; 
-            background: #ececec; 
-            border-left: 1px solid #ccc;
-        }
-
-        .action-btn { 
-            font-size: 10px; cursor: pointer; text-align: center; 
-            width: 75px; padding: 10px 0; background: #fff; 
-            border: 1px solid #999; border-radius: 4px; font-weight: bold;
-        }
-
+        #map { flex-grow: 1; background: #111; position: relative; z-index: 1; }
+        #bottom-tray { display: flex; height: 150px; background: white; border-top: 2px solid #333; padding-bottom: var(--sab); flex-shrink: 0; width: 100%; }
+        #chart-section { flex: 1; min-width: 0; position: relative; padding: 5px; }
+        #action-section { flex: 0 0 85px; display: flex; flex-direction: column; justify-content: space-evenly; align-items: center; background: #ececec; border-left: 1px solid #ccc; }
+        .action-btn { font-size: 10px; cursor: pointer; text-align: center; width: 75px; padding: 10px 0; background: #fff; border: 1px solid #999; border-radius: 4px; font-weight: bold; }
         #recenter-btn { background: #3498db; color: white; border: none; display: none; }
         #reset-btn { background: #fee; color: #c0392b; border: 1px solid #fcc; }
-        
         #status { position: absolute; bottom: 8px; left: 8px; z-index: 2000; font-size: 10px; color: #2ecc71; text-shadow: 1px 1px 1px #000; }
         canvas { width: 100% !important; height: 100% !important; }
     </style>
@@ -103,13 +44,9 @@
             <div class="data-row"><span class="label">GRADE</span><span class="val-text" id="grade-val">0.0</span></div>
         </div>
     </div>
-
     <div id="map"><div id="status">GPS: WAITING</div></div>
-
     <div id="bottom-tray">
-        <div id="chart-section">
-            <canvas id="elevationChart"></canvas>
-        </div>
+        <div id="chart-section"><canvas id="elevationChart"></canvas></div>
         <div id="action-section">
             <label class="action-btn">KML <input type="file" id="kml-upload" accept=".kml" style="display:none"></label>
             <button class="action-btn" id="fs-btn">FULL</button>
@@ -122,16 +59,16 @@
 <script>
     let map, chart, userMarker, snappedMarker, breadcrumbLine, routeGeoJson, kmlRouteLine;
     let isFollowing = true, totalDist = 0, routeData = [], breadcrumbCoords = [];
-
     const METERS_TO_FEET = 3.28084, MPS_TO_MPH = 2.23694, FEET_LIMIT = 500, WINDOW_MI = 0.25;
 
     function init() {
         map = L.map('map', { zoomControl: false, preferCanvas: true }).setView([0, 0], 2);
         L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png').addTo(map);
 
-        userMarker = L.circleMarker([0,0], { color: '#2980b9', fillColor: '#3498db', fillOpacity: 0.9, radius: 6 }).addTo(map);
-        snappedMarker = L.circleMarker([0,0], { color: '#e67e22', fillColor: '#d35400', fillOpacity: 1, radius: 6 }).addTo(map);
-        breadcrumbLine = L.polyline([], { color: '#3498db', weight: 4, opacity: 0.8 }).addTo(map);
+        // Ensure these have high zIndex to stay on top
+        breadcrumbLine = L.polyline([], { color: '#3498db', weight: 4, opacity: 0.8, zIndex: 1000 }).addTo(map);
+        userMarker = L.circleMarker([0,0], { color: '#2980b9', fillColor: '#3498db', fillOpacity: 0.9, radius: 6, zIndex: 1100 }).addTo(map);
+        snappedMarker = L.circleMarker([0,0], { color: '#e67e22', fillColor: '#d35400', fillOpacity: 1, radius: 6, zIndex: 1050 }).addTo(map);
 
         const ctx = document.getElementById('elevationChart').getContext('2d');
         chart = new Chart(ctx, {
@@ -145,13 +82,8 @@
                 }}}, 
                 { data: [], pointRadius: 6, pointBackgroundColor: '#e67e22', pointBorderColor: '#fff', pointBorderWidth: 1, showLine: false }
             ]},
-            options: { 
-                responsive: true, maintainAspectRatio: false, 
-                plugins: { legend: false },
-                scales: { 
-                    x: { type: 'linear', ticks: { display: false }, grid: { display: false } }, 
-                    y: { grace: '15%', ticks: { font: { size: 9 } } } 
-                } 
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: false },
+                scales: { x: { type: 'linear', ticks: { display: false }, grid: { display: false } }, y: { grace: '15%', ticks: { font: { size: 9 } } } } 
             }
         });
 
@@ -160,12 +92,7 @@
             else document.exitFullscreen();
         };
 
-        window.addEventListener('resize', () => {
-            map.invalidateSize();
-            chart.resize();
-            chart.update();
-        });
-
+        window.addEventListener('resize', () => { setTimeout(() => { map.invalidateSize(); chart.resize(); chart.update(); }, 100); });
         document.getElementById('reset-btn').onclick = () => { localStorage.clear(); location.reload(); };
         document.getElementById('kml-upload').onchange = (e) => {
             const reader = new FileReader();
@@ -198,11 +125,9 @@
         navigator.geolocation.watchPosition((pos) => {
             const { latitude: lat, longitude: lng, speed, altitude } = pos.coords;
             const curElev = altitude ? Math.round(altitude * METERS_TO_FEET) : 0;
-            
             document.getElementById('status').innerText = "GPS: OK";
             document.getElementById('speed-val').innerText = speed ? (speed * MPS_TO_MPH).toFixed(1) : "0.0";
             document.getElementById('elev-val').innerText = curElev || "---";
-            
             userMarker.setLatLng([lat, lng]);
             breadcrumbCoords.push([lat, lng]);
             breadcrumbLine.setLatLngs(breadcrumbCoords);
@@ -211,34 +136,25 @@
                 const userPt = turf.point([lng, lat]);
                 const snapped = turf.nearestPointOnLine(routeGeoJson, userPt, {units: 'miles'});
                 const curDist = snapped.properties.location;
-
                 if (turf.distance(userPt, snapped, {units: 'miles'}) * 5280 <= FEET_LIMIT) {
                     snappedMarker.setLatLng([snapped.geometry.coordinates[1], snapped.geometry.coordinates[0]]);
                     if (!map.hasLayer(snappedMarker)) snappedMarker.addTo(map);
-
-                    const step = 0.01; 
-                    const e1 = getElevAtDist(curDist);
-                    const e2 = getElevAtDist(curDist + step);
+                    const step = 0.01, e1 = getElevAtDist(curDist), e2 = getElevAtDist(curDist + step);
                     const grade = ((e2 - e1) / (step * 5280)) * 100;
-                    
                     const gradeEl = document.getElementById('grade-val');
                     gradeEl.innerText = isFinite(grade) ? grade.toFixed(1) : "0.0";
                     gradeEl.style.color = grade >= 6 ? "#e74c3c" : (grade >= 3 ? "#f1c40f" : "#fff");
-                    
                     document.getElementById('remain-val').innerText = Math.max(0, totalDist - curDist).toFixed(1);
 
                     if (isFollowing) {
                         map.setView([lat, lng], 15, { animate: true, hard: true });
                         const minX = curDist - WINDOW_MI, maxX = curDist + WINDOW_MI;
-                        chart.options.scales.x.min = minX;
-                        chart.options.scales.x.max = maxX;
+                        chart.options.scales.x.min = minX; chart.options.scales.x.max = maxX;
                         chart.data.datasets[1].data = [{ x: curDist, y: curElev || e1 }];
-                        
                         const visible = routeData.filter(p => p.x >= minX && p.x <= maxX);
                         if (visible.length > 0) {
                             const eArr = visible.map(p => p.y);
-                            chart.options.scales.y.min = Math.min(...eArr) - 20;
-                            chart.options.scales.y.max = Math.max(...eArr) + 20;
+                            chart.options.scales.y.min = Math.min(...eArr) - 20; chart.options.scales.y.max = Math.max(...eArr) + 20;
                         }
                         chart.update('none');
                     }
@@ -251,14 +167,12 @@
         const geojson = toGeoJSON.kml(new DOMParser().parseFromString(xmlString, "text/xml"));
         const line = geojson.features.find(f => f.geometry.type === 'LineString');
         if (!line) return;
-        
         const raw = line.geometry.coordinates;
         const smoothed = raw.map((c, i) => {
             const win = raw.slice(Math.max(0, i-2), Math.min(raw.length, i+3));
             const avg = win.reduce((sum, pt) => sum + (pt[2] || 0), 0) / win.length;
             return [c[0], c[1], avg * METERS_TO_FEET];
         });
-
         routeGeoJson = { type: "Feature", geometry: { type: "LineString", coordinates: smoothed } };
         let d = 0; routeData = [{x:0, y:smoothed[0][2]}];
         for(let i=1; i<smoothed.length; i++) {
@@ -268,8 +182,9 @@
         totalDist = d;
         chart.data.datasets[0].data = routeData;
         if (kmlRouteLine) map.removeLayer(kmlRouteLine);
-        kmlRouteLine = L.polyline(smoothed.map(c => [c[1], c[0]]), { color: '#000', weight: 2, opacity: 0.4, dashArray: '5, 10' }).addTo(map);
+        kmlRouteLine = L.polyline(smoothed.map(c => [c[1], c[0]]), { color: '#000', weight: 3, opacity: 0.5, dashArray: '5, 10', zIndex: 500 }).addTo(map);
         map.fitBounds(kmlRouteLine.getBounds());
+        map.invalidateSize();
         chart.update();
     }
     window.onload = init;
