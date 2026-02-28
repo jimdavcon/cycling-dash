@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash CleanStack</title>
+    <title>CycleDash SyncPro</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -12,96 +12,26 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/togeojson/0.16.0/togeojson.min.js"></script>
 
     <style>
-        :root { 
-            --sat: env(safe-area-inset-top, 0px); 
-            --sab: env(safe-area-inset-bottom, 0px); 
-        }
-
-        body, html { 
-            margin: 0; padding: 0; height: 100%; width: 100%; 
-            overflow: hidden; background: #1a1a1a; 
-            font-family: -apple-system, system-ui, sans-serif;
-        }
-        
+        :root { --sat: env(safe-area-inset-top, 0px); --sab: env(safe-area-inset-bottom, 0px); }
+        body, html { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; background: #1a1a1a; font-family: -apple-system, system-ui, sans-serif; }
         #container { display: flex; flex-direction: column; height: 100vh; height: -webkit-fill-available; }
         
-        /* TIER 1: TOP HUD (Separate from Map) */
-        #hud-header {
-            background: #222;
-            color: white;
-            padding-top: var(--sat);
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 2px;
-            border-bottom: 1px solid #444;
-            z-index: 10;
-        }
-
+        #hud-header { background: #222; color: white; padding-top: var(--sat); display: grid; grid-template-columns: 1fr 1fr; gap: 2px; border-bottom: 1px solid #444; z-index: 10; }
         .hud-column { display: flex; flex-direction: column; padding: 4px 8px; }
-        
-        .data-row { 
-            display: flex; 
-            justify-content: space-between; 
-            align-items: baseline;
-            border-bottom: 1px solid #333;
-            padding: 2px 0;
-        }
+        .data-row { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #333; padding: 2px 0; }
         .data-row:last-child { border-bottom: none; }
-
         .label { font-size: 8px; font-weight: bold; color: #888; text-transform: uppercase; }
         .val-text { font-size: 16px; font-weight: bold; font-family: monospace; color: #fff; }
 
-        /* TIER 2: MAP */
         #map { flex: 4; background: #111; position: relative; }
+        #bottom-tray { display: flex; height: 125px; background: white; border-top: 1px solid #333; padding-bottom: var(--sab); }
+        #chart-section { flex: 0 0 80%; border-right: 1px solid #eee; padding: 2px; box-sizing: border-box; }
+        #action-section { flex: 0 0 20%; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 4px; background: #f1f1f1; padding: 2px; box-sizing: border-box; }
 
-        /* TIER 3: BOTTOM TRAY */
-        #bottom-tray { 
-            display: flex; 
-            height: 120px; 
-            background: white; 
-            border-top: 1px solid #333;
-            padding-bottom: var(--sab);
-        }
-
-        #chart-section { 
-            flex: 0 0 80%; 
-            border-right: 1px solid #eee;
-            padding: 2px;
-            box-sizing: border-box;
-        }
-
-        #action-section { 
-            flex: 0 0 20%; 
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            gap: 4px;
-            background: #f1f1f1;
-            padding: 2px;
-            box-sizing: border-box;
-        }
-
-        .action-btn { 
-            font-size: 8px; cursor: pointer; text-align: center; 
-            width: 90%; padding: 5px 0;
-            background: #fff;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            font-weight: bold;
-            color: #333;
-            text-decoration: none;
-        }
-
+        .action-btn { font-size: 8px; cursor: pointer; text-align: center; width: 90%; padding: 5px 0; background: #fff; border: 1px solid #ccc; border-radius: 4px; font-weight: bold; color: #333; }
         #recenter-btn { background: #3498db; color: white; border: none; display: none; }
         #reset-btn { background: #fdf2f2; color: #c0392b; border: 1px solid #f8d7da; }
-        
-        #status { 
-            position: absolute; bottom: 5px; left: 5px; 
-            z-index: 2000; font-size: 9px; font-weight: bold; 
-            color: #2ecc71; text-shadow: 1px 1px 1px #000; 
-            pointer-events: none; 
-        }
+        #status { position: absolute; bottom: 5px; left: 5px; z-index: 2000; font-size: 9px; font-weight: bold; color: #2ecc71; text-shadow: 1px 1px 1px #000; pointer-events: none; }
     </style>
 </head>
 <body>
@@ -114,18 +44,14 @@
         </div>
         <div class="hud-column">
             <div class="data-row"><span class="label">ELEV</span><span class="val-text" id="elev-val">---</span></div>
-            <div id="grade-container" class="data-row"><span class="label">GRADE</span><span class="val-text" id="grade-val">0.0</span></div>
+            <div class="data-row"><span class="label">GRADE</span><span class="val-text" id="grade-val">0.0</span></div>
         </div>
     </div>
 
-    <div id="map">
-        <div id="status">GPS: WAITING</div>
-    </div>
+    <div id="map"><div id="status">GPS: WAITING</div></div>
 
     <div id="bottom-tray">
-        <div id="chart-section">
-            <canvas id="elevationChart"></canvas>
-        </div>
+        <div id="chart-section"><canvas id="elevationChart"></canvas></div>
         <div id="action-section">
             <label class="action-btn">KML <input type="file" id="kml-upload" accept=".kml" style="display:none"></label>
             <button class="action-btn" id="fs-btn">FULL</button>
@@ -137,9 +63,9 @@
 
 <script>
     let map, chart, userMarker, snappedMarker, routeGeoJson, kmlRouteLine, startMarker, endMarker;
-    let isFollowing = true, currentDist = 0, totalDist = 0;
+    let isFollowing = true, currentDist = 0, totalDist = 0, routeData = [];
 
-    const METERS_TO_FEET = 3.28084, MPS_TO_MPH = 2.23694, FEET_LIMIT = 500;
+    const METERS_TO_FEET = 3.28084, MPS_TO_MPH = 2.23694, FEET_LIMIT = 500, WINDOW_MI = 0.25;
 
     function init() {
         map = L.map('map', { zoomControl: false, preferCanvas: true }).setView([0, 0], 2);
@@ -150,20 +76,22 @@
 
         chart = new Chart(document.getElementById('elevationChart'), {
             type: 'line',
-            data: { 
-                datasets: [
-                    { data: [], borderWidth: 2, pointRadius: 0, tension: 0.1, segment: { borderColor: ctx => {
-                        const p1 = ctx.p0.raw, p2 = ctx.p1.raw;
-                        if (!p1 || !p2) return '#27ae60';
-                        const grade = ((p2.y - p1.y) / ((p2.x - p1.x) * 5280)) * 100;
-                        if (grade >= 6) return '#e74c3c';
-                        if (grade >= 3) return '#f1c40f';
-                        return '#27ae60';
-                    }}}, 
-                    { data: [], pointRadius: 6, pointBackgroundColor: '#e67e22', pointBorderColor: '#fff', pointBorderWidth: 1, showLine: false }
-                ] 
-            },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: false }, scales: { x: { type: 'linear', ticks: { font: { size: 7 } } }, y: { ticks: { font: { size: 7 } } } } }
+            data: { datasets: [
+                { data: [], borderWidth: 2, pointRadius: 0, tension: 0.1, segment: { borderColor: ctx => {
+                    const p1 = ctx.p0.raw, p2 = ctx.p1.raw;
+                    if (!p1 || !p2) return '#27ae60';
+                    const grade = ((p2.y - p1.y) / ((p2.x - p1.x) * 5280)) * 100;
+                    return grade >= 6 ? '#e74c3c' : (grade >= 3 ? '#f1c40f' : '#27ae60');
+                }}}, 
+                { data: [], pointRadius: 6, pointBackgroundColor: '#e67e22', pointBorderColor: '#fff', pointBorderWidth: 1, showLine: false }
+            ]},
+            options: { 
+                responsive: true, maintainAspectRatio: false, plugins: { legend: false },
+                scales: { 
+                    x: { type: 'linear', ticks: { font: { size: 7 } } }, 
+                    y: { ticks: { font: { size: 7 } }, grace: '10%' } 
+                } 
+            }
         });
 
         document.getElementById('fs-btn').onclick = () => {
@@ -179,76 +107,112 @@
         };
 
         map.on('movestart', (e) => { if (!e.hard) { isFollowing = false; document.getElementById('recenter-btn').style.display = 'block'; } });
-        document.getElementById('recenter-btn').onclick = () => { isFollowing = true; document.getElementById('recenter-btn').style.display = 'none'; };
+        
+        document.getElementById('recenter-btn').onclick = () => { 
+            isFollowing = true; 
+            document.getElementById('recenter-btn').style.display = 'none';
+            updateViewports(userMarker.getLatLng().lat, userMarker.getLatLng().lng, parseFloat(document.getElementById('elev-val').innerText));
+        };
 
         const saved = localStorage.getItem('cycling_kml_foss');
         if (saved) loadKml(saved);
-
         startGPS();
-        setTimeout(() => map.invalidateSize(), 500);
+    }
+
+    function updateViewports(lat, lng, altitude) {
+        if (!isFollowing) return;
+
+        // 1. Map Update (Approx 0.25mi radius is roughly zoom 15-16)
+        map.setView([lat, lng], 15, { animate: true, hard: true });
+
+        // 2. Chart Update
+        if (routeGeoJson) {
+            const userPt = turf.point([lng, lat]);
+            const snapped = turf.nearestPointOnLine(routeGeoJson, userPt, {units: 'miles'});
+            
+            if (turf.distance(userPt, snapped, {units: 'miles'}) * 5280 <= FEET_LIMIT) {
+                currentDist = snapped.properties.location;
+                snappedMarker.setLatLng([snapped.geometry.coordinates[1], snapped.geometry.coordinates[0]]);
+                if (!map.hasLayer(snappedMarker)) snappedMarker.addTo(map);
+
+                // Set X-Axis Range (+/- 0.25 miles)
+                const minX = currentDist - WINDOW_MI;
+                const maxX = currentDist + WINDOW_MI;
+                chart.options.scales.x.min = minX;
+                chart.options.scales.x.max = maxX;
+
+                // Position Orange Marker at Current GPS Elevation
+                chart.data.datasets[1].data = [{ x: currentDist, y: altitude || snapped.geometry.coordinates[2] }];
+
+                // Autoscale Y-Axis based on visible range
+                const visiblePoints = routeData.filter(p => p.x >= minX && p.x <= maxX);
+                if (visiblePoints.length > 0) {
+                    const elevs = visiblePoints.map(p => p.y);
+                    chart.options.scales.y.min = Math.min(...elevs) - 10;
+                    chart.options.scales.y.max = Math.max(...elevs) + 10;
+                }
+                
+                chart.update('none');
+            }
+        }
     }
 
     function startGPS() {
         const options = { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 };
         navigator.geolocation.watchPosition((pos) => {
             const { latitude: lat, longitude: lng, speed, altitude } = pos.coords;
+            const curElev = altitude ? Math.round(altitude * METERS_TO_FEET) : 0;
+            
             document.getElementById('status').innerText = "GPS: OK";
             document.getElementById('speed-val').innerText = speed ? (speed * MPS_TO_MPH).toFixed(1) : "0.0";
-            document.getElementById('elev-val').innerText = altitude ? Math.round(altitude * METERS_TO_FEET) : "---";
+            document.getElementById('elev-val').innerText = curElev || "---";
+            
             userMarker.setLatLng([lat, lng]);
-            if (isFollowing) map.panTo([lat, lng], {animate: true});
-
+            
             if (routeGeoJson) {
                 const userPt = turf.point([lng, lat]);
                 const snapped = turf.nearestPointOnLine(routeGeoJson, userPt, {units: 'miles'});
-                if (turf.distance(userPt, snapped, {units: 'miles'}) * 5280 <= FEET_LIMIT) {
-                    if (!map.hasLayer(snappedMarker)) snappedMarker.addTo(map);
-                    currentDist = snapped.properties.location;
-                    const sElev = snapped.geometry.coordinates[2] || 0;
-                    snappedMarker.setLatLng([snapped.geometry.coordinates[1], snapped.geometry.coordinates[0]]);
-                    chart.data.datasets[1].data = [{ x: currentDist, y: sElev }];
-                    const lookAheadMi = 0.03, pAhead = turf.along(routeGeoJson, Math.min(totalDist, currentDist + lookAheadMi), {units: 'miles'});
-                    const grade = (((pAhead.geometry.coordinates[2] - sElev) / (lookAheadMi * 5280)) * 100);
-                    document.getElementById('grade-val').innerText = isFinite(grade) ? grade.toFixed(1) : "0.0";
-                    document.getElementById('remain-val').innerText = Math.max(0, totalDist - currentDist).toFixed(1);
-                    
-                    const gText = document.getElementById('grade-val');
-                    if (grade >= 6) gText.style.color = '#ff6b6b';
-                    else if (grade >= 3) gText.style.color = '#ffd93d';
-                    else gText.style.color = '#fff';
-
-                    chart.options.scales.x.min = Math.max(0, currentDist - 0.5);
-                    chart.options.scales.x.max = currentDist + 0.5;
-                    chart.update('none');
-                }
+                const sElev = snapped.geometry.coordinates[2] || 0;
+                const lookAheadMi = 0.03, pAhead = turf.along(routeGeoJson, Math.min(totalDist, snapped.properties.location + lookAheadMi), {units: 'miles'});
+                const grade = (((pAhead.geometry.coordinates[2] - sElev) / (lookAheadMi * 5280)) * 100);
+                
+                document.getElementById('grade-val').innerText = isFinite(grade) ? grade.toFixed(1) : "0.0";
+                document.getElementById('remain-val').innerText = Math.max(0, totalDist - snapped.properties.location).toFixed(1);
             }
-        }, () => { document.getElementById('status').innerText = "GPS: LOST"; }, options);
+
+            updateViewports(lat, lng, curElev);
+        }, null, options);
     }
 
     function loadKml(xmlString) {
         const geojson = toGeoJSON.kml(new DOMParser().parseFromString(xmlString, "text/xml"));
         const line = geojson.features.find(f => f.geometry.type === 'LineString');
         if (!line) return;
-        const smoothedCoords = line.geometry.coordinates.map((c, i, arr) => {
-            const window = arr.slice(Math.max(0, i-4), Math.min(arr.length, i+5));
-            const avgElev = window.reduce((a, b) => a + (b[2] || 0), 0) / window.length;
-            return [c[0], c[1], avgElev * METERS_TO_FEET];
+        
+        const rawCoords = line.geometry.coordinates;
+        const smoothedCoords = rawCoords.map((c, i, arr) => {
+            const win = arr.slice(Math.max(0, i-4), Math.min(arr.length, i+5));
+            const avg = win.reduce((a, b) => a + (b[2] || 0), 0) / win.length;
+            return [c[0], c[1], avg * METERS_TO_FEET];
         });
+
         routeGeoJson = { type: "Feature", geometry: { type: "LineString", coordinates: smoothedCoords } };
-        let dist = 0, chartPoints = [];
+        let dist = 0; routeData = [];
         smoothedCoords.forEach((c, i) => {
             if (i > 0) dist += turf.distance(turf.point(smoothedCoords[i-1]), turf.point(c), {units: 'miles'});
-            chartPoints.push({ x: dist, y: c[2] });
+            routeData.push({ x: dist, y: c[2] });
         });
         totalDist = dist;
-        chart.data.datasets[0].data = chartPoints;
-        chart.update();
+        chart.data.datasets[0].data = routeData;
+
         if (kmlRouteLine) map.removeLayer(kmlRouteLine);
         kmlRouteLine = L.polyline(smoothedCoords.map(c => [c[1], c[0]]), { color: '#000', weight: 2, opacity: 0.6, dashArray: '3, 7' }).addTo(map);
+        
         if (startMarker) map.removeLayer(startMarker);
         if (endMarker) map.removeLayer(endMarker);
         startMarker = L.circleMarker([smoothedCoords[0][1], smoothedCoords[0][0]], { radius: 6, color: '#27ae60', weight: 2, fillOpacity: 0.8 }).addTo(map);
         endMarker = L.circleMarker([smoothedCoords[smoothedCoords.length-1][1], smoothedCoords[smoothedCoords.length-1][0]], { radius: 6, color: '#e74c3c', weight: 2, fillOpacity: 0.8 }).addTo(map);
+
         map.fitBounds(kmlRouteLine.getBounds());
     }
     window.onload = init;
