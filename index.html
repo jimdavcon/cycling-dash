@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro - Sync HUD</title>
+    <title>CycleDash Pro - Pulse HUD</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -20,11 +20,15 @@
         #hud-header { background: #222; color: white; padding-top: var(--sat); display: grid; grid-template-columns: 1fr 1.1fr 1fr; border-bottom: 1px solid #444; flex-shrink: 0; z-index: 1000; height: 60px; }
         .hud-column { display: flex; flex-direction: column; padding: 0px 10px; justify-content: center; }
         .data-row { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #333; padding: 0px 0; line-height: 1.2; }
-        .label { font-size: 9px; font-weight: bold; color: #888; text-transform: uppercase; }
+        .label { font-size: 9px; font-weight: bold; color: #888; text-transform: uppercase; transition: color 0.05s linear; }
         .val-text { font-size: 17px; font-weight: bold; font-family: monospace; color: #fff; }
 
+        /* Pulse classes */
+        .pulse-green { color: #2ecc71 !important; }
+        .active-shadow { text-shadow: 1px 1px 2px #000, 0 0 5px rgba(46, 204, 113, 0.5); }
+
         #map { flex: 1; background: #111; position: relative; width: 100%; z-index: 1; overflow: hidden; }
-        .leaflet-map-pane { transition: none; } /* Remove transition for instant refresh sync */
+        .leaflet-map-pane { transition: none; } 
 
         #compass-ui { position: absolute; top: 10px; left: 10px; z-index: 2000; width: 34px; height: 34px; background: rgba(0,0,0,0.6); border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid #555; pointer-events: none; }
         #needle { width: 2px; height: 24px; background: #e74c3c; position: relative; }
@@ -36,9 +40,7 @@
         
         .action-btn { font-size: 9px; cursor: pointer; text-align: center; width: 80px; padding: 8px 0; background: #fff; border: 1px solid #999; border-radius: 4px; font-weight: bold; color: #333; }
         #recenter-btn { background: #3498db; color: white; border: none; display: none; position: absolute; top: 10px; right: 10px; z-index: 2000; width: auto; padding: 8px 15px; opacity: 0; transition: opacity 0.5s ease; }
-        #reset-btn { background: #fee; color: #c0392b; border: 1px solid #fcc; }
         #status { position: absolute; bottom: 8px; left: 8px; z-index: 2000; font-size: 10px; color: #2ecc71; font-weight: bold; transition: text-shadow 0.05s linear; }
-        .active-shadow { text-shadow: 1px 1px 2px #000, 0 0 5px rgba(46, 204, 113, 0.5); }
         canvas { width: 100% !important; height: 100% !important; }
     </style>
 </head>
@@ -51,7 +53,7 @@
             <div class="data-row"><span class="label">REM</span><span class="val-text" id="remain-val">---</span></div>
         </div>
         <div class="hud-column">
-            <div class="data-row"><span class="label">TIME</span><span class="val-text" id="time-val">--:--</span></div>
+            <div class="data-row"><span class="label" id="time-label">TIME</span><span class="val-text" id="time-val">--:--</span></div>
             <div class="data-row"><span class="label">HDG</span><span class="val-text" id="heading-val">0°</span></div>
         </div>
         <div class="hud-column">
@@ -80,9 +82,8 @@
 <script>
     let map, chart, userMarker, snappedMarker, startMarker, endMarker, routeGeoJson, kmlRouteLine;
     let isFollowing = true, totalDist = 0, routeData = [];
-    let lastLat, lastLng, lastBreadcrumbTime = 0;
+    let lastLat, lastLng;
     const METERS_TO_FEET = 3.28084, MPS_TO_MPH = 2.23694, WINDOW_MI = 0.25, DEFAULT_ZOOM = 16;
-    const BREADCRUMB_INTERVAL = 5000;
 
     function updateTime() {
         const now = new Date();
@@ -169,9 +170,13 @@
         startGPS();
     }
 
-    function toggleStatusShadow() {
-        const el = document.getElementById('status');
-        el.classList.toggle('active-shadow');
+    // Combined visual heartbeat
+    function pulseUI() {
+        const statusEl = document.getElementById('status');
+        const timeLabel = document.getElementById('time-label');
+        
+        statusEl.classList.toggle('active-shadow');
+        timeLabel.classList.toggle('pulse-green');
     }
 
     function startGPS() {
@@ -179,17 +184,17 @@
             const { latitude: lat, longitude: lng, speed, altitude, heading } = pos.coords;
             lastLat = lat; lastLng = lng;
             
-            // 1. Update Observable GPS Heartbeat
+            // Trigger visual pulse
+            pulseUI();
             document.getElementById('status').innerText = "GPS: LIVE";
-            toggleStatusShadow();
 
-            // 2. Update HUD Basic Fields
+            // Update all HUD fields
             document.getElementById('speed-val').innerText = speed ? (speed * MPS_TO_MPH).toFixed(1) : "0.0";
             document.getElementById('elev-val').innerText = altitude ? Math.round(altitude * METERS_TO_FEET) : "---";
             document.getElementById('heading-val').innerText = heading ? Math.round(heading) + "°" : "0°";
             updateTime();
 
-            // 3. Update Map Position/Rotation
+            // Sync Map
             userMarker.setLatLng([lat, lng]);
             if (isFollowing) {
                 map.setView([lat, lng], map.getZoom(), { animate: false });
@@ -200,7 +205,7 @@
                 }
             }
 
-            // 4. Update Route Specifics & Chart
+            // Sync Route Context and Elevation Chart
             updateRouteContext(lat, lng);
 
         }, (err) => {
@@ -220,13 +225,11 @@
         const curDist = snapped.properties.location;
         snappedMarker.setLatLng([snapped.geometry.coordinates[1], snapped.geometry.coordinates[0]]);
 
-        // Grade calculation
         const step = 0.01, e1 = getElevAtDist(curDist), e2 = getElevAtDist(curDist + step);
         const grade = ((e2 - e1) / (step * 5280)) * 100;
         document.getElementById('grade-val').innerText = isFinite(grade) ? grade.toFixed(1) : "0.0";
         document.getElementById('remain-val').innerText = Math.max(0, totalDist - curDist).toFixed(1);
 
-        // Chart Sync
         const minX = curDist - (WINDOW_MI * 0.25), maxX = curDist + (WINDOW_MI * 0.75);
         chart.options.scales.x.min = minX; chart.options.scales.x.max = maxX;
         chart.data.datasets[1].data = [{ x: curDist, y: e1 }];
