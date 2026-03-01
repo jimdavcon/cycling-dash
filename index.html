@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash ElevAlign</title>
+    <title>CycleDash Pro</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -23,16 +23,39 @@
         .label { font-size: 10px; font-weight: bold; color: #888; }
         .val-text { font-size: 20px; font-weight: bold; font-family: monospace; color: #fff; }
 
-        #map { flex: 1; background: #111; position: relative; width: 100%; z-index: 1; }
-        #bottom-tray { display: flex; height: 150px; background: white; border-top: 2px solid #333; padding-bottom: var(--sab); flex-shrink: 0; width: 100%; z-index: 1000;}
+        #map { flex: 1; background: #111; position: relative; width: 100%; z-index: 1; overflow: hidden; }
         
+        /* Map Rotation Handling */
+        .leaflet-map-pane { transition: transform 0.8s cubic-bezier(0.4, 0, 0.2, 1); }
+
+        #compass-ui {
+            position: absolute; top: 10px; left: 10px; z-index: 2000;
+            width: 34px; height: 34px; background: rgba(0,0,0,0.6);
+            border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            border: 2px solid #555; pointer-events: none;
+        }
+        #needle {
+            width: 2px; height: 24px; background: #e74c3c; /* Red points North */
+            position: relative; transition: transform 0.8s;
+        }
+        #needle::after {
+            content: ''; position: absolute; bottom: 0; left: 0;
+            width: 2px; height: 50%; background: #fff; transform: translateY(0);
+        }
+
+        #bottom-tray { display: flex; height: 150px; background: white; border-top: 2px solid #333; padding-bottom: var(--sab); flex-shrink: 0; width: 100%; z-index: 1000;}
         #chart-section { flex: 1; min-width: 0; position: relative; padding: 5px; height: 100%; }
         #action-section { flex: 0 0 90px; display: flex; flex-direction: column; justify-content: space-evenly; align-items: center; background: #ececec; border-left: 1px solid #ccc; }
         
         .action-btn { font-size: 10px; cursor: pointer; text-align: center; width: 80px; padding: 10px 0; background: #fff; border: 1px solid #999; border-radius: 4px; font-weight: bold; color: #333; }
-        #recenter-btn { background: #3498db; color: white; border: none; display: none; position: absolute; top: 10px; right: 10px; z-index: 2000; width: auto; padding: 8px 15px; }
-        #reset-btn { background: #fee; color: #c0392b; border: 1px solid #fcc; }
         
+        #recenter-btn { 
+            background: #3498db; color: white; border: none; display: none; 
+            position: absolute; top: 10px; right: 10px; z-index: 2000; 
+            width: auto; padding: 8px 15px; opacity: 0; transition: opacity 0.5s ease;
+        }
+
+        #reset-btn { background: #fee; color: #c0392b; border: 1px solid #fcc; }
         #status { position: absolute; bottom: 8px; left: 8px; z-index: 2000; font-size: 10px; color: #2ecc71; text-shadow: 1px 1px 1px #000; font-weight: bold; }
         canvas { width: 100% !important; height: 100% !important; }
     </style>
@@ -52,8 +75,9 @@
     </div>
 
     <div id="map">
+        <div id="compass-ui"><div id="needle"></div></div>
         <div id="status">GPS: WAITING</div>
-        <button class="action-btn" id="recenter-btn">RESUME TRACKING</button>
+        <button class="action-btn" id="recenter-btn">RECENTER</button>
     </div>
 
     <div id="bottom-tray">
@@ -70,10 +94,10 @@
     let map, chart, userMarker, snappedMarker, startMarker, endMarker, breadcrumbLine, routeGeoJson, kmlRouteLine;
     let isFollowing = true, totalDist = 0, routeData = [], breadcrumbCoords = [];
     let lastLat, lastLng, lastUpdateTime = 0;
-    const METERS_TO_FEET = 3.28084, MPS_TO_MPH = 2.23694, FEET_LIMIT = 500, WINDOW_MI = 0.25;
+    const METERS_TO_FEET = 3.28084, MPS_TO_MPH = 2.23694, WINDOW_MI = 0.25, DEFAULT_ZOOM = 16;
 
     function init() {
-        map = L.map('map', { zoomControl: false }).setView([0, 0], 2);
+        map = L.map('map', { zoomControl: false, doubleClickZoom: false }).setView([0, 0], 2);
         L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png').addTo(map);
 
         breadcrumbLine = L.polyline([], { color: '#3498db', weight: 5, opacity: 0.6 }).addTo(map);
@@ -104,15 +128,27 @@
             }
         });
 
+        map.on('dragstart', () => { 
+            isFollowing = false; 
+            const btn = document.getElementById('recenter-btn');
+            btn.style.display = 'block';
+            setTimeout(() => btn.style.opacity = '1', 10);
+        });
+
+        map.on('dblclick', () => { map.setZoom(DEFAULT_ZOOM); });
+
+        document.getElementById('recenter-btn').onclick = function() {
+            isFollowing = true;
+            this.style.opacity = '0';
+            setTimeout(() => this.style.display = 'none', 500);
+            if(lastLat && lastLng) map.panTo([lastLat, lastLng]);
+        };
+
         document.getElementById('fs-btn').onclick = () => {
             if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
             else document.exitFullscreen();
         };
 
-        map.on('dragstart', () => { isFollowing = false; document.getElementById('recenter-btn').style.display = 'block'; });
-        document.getElementById('recenter-btn').onclick = () => { isFollowing = true; document.getElementById('recenter-btn').style.display = 'none'; if(lastLat && lastLng) map.setView([lastLat, lastLng], 16); };
-
-        window.addEventListener('resize', () => { setTimeout(() => { map.invalidateSize(); chart.resize(); chart.update('none'); }, 200); });
         document.getElementById('reset-btn').onclick = () => { localStorage.clear(); location.reload(); };
 
         document.getElementById('route-upload').onchange = async (e) => {
@@ -123,12 +159,11 @@
                 const kmlFile = Object.values(zip.files).find(f => f.name.toLowerCase().endsWith('.kml'));
                 if (kmlFile) {
                     const kmlText = await kmlFile.async("string");
-                    localStorage.setItem('cycling_route_foss', kmlText);
                     loadKml(kmlText);
                 }
             } else {
                 const reader = new FileReader();
-                reader.onload = (ev) => { localStorage.setItem('cycling_route_foss', ev.target.result); loadKml(ev.target.result); };
+                reader.onload = (ev) => { loadKml(ev.target.result); };
                 reader.readAsText(file);
             }
         };
@@ -138,16 +173,12 @@
         startGPS();
     }
 
-    function getElevAtDist(targetDist) {
-        if (routeData.length === 0) return 0;
-        const target = Math.max(0, Math.min(targetDist, totalDist));
-        for (let i = 0; i < routeData.length - 1; i++) {
-            if (target >= routeData[i].x && target <= routeData[i+1].x) {
-                const ratio = (target - routeData[i].x) / (routeData[i+1].x - routeData[i].x);
-                return routeData[i].y + ratio * (routeData[i+1].y - routeData[i].y);
-            }
-        }
-        return routeData[routeData.length - 1].y;
+    function rotateMap(heading) {
+        if (heading === null || heading === undefined) return;
+        const pane = map.getPane('mapPane');
+        pane.style.transformOrigin = "center";
+        pane.style.transform = `rotate(${-heading}deg)`;
+        document.getElementById('needle').style.transform = `rotate(${-heading}deg)`;
     }
 
     function startGPS() {
@@ -156,7 +187,7 @@
             if (now - lastUpdateTime < 5000) return;
             lastUpdateTime = now;
 
-            const { latitude: lat, longitude: lng, speed, altitude } = pos.coords;
+            const { latitude: lat, longitude: lng, speed, altitude, heading } = pos.coords;
             lastLat = lat; lastLng = lng;
             const curElev = altitude ? Math.round(altitude * METERS_TO_FEET) : 0;
             
@@ -168,7 +199,10 @@
             breadcrumbCoords.push([lat, lng]);
             breadcrumbLine.setLatLngs(breadcrumbCoords);
 
-            if (isFollowing) map.setView([lat, lng], map.getZoom() < 10 ? 16 : map.getZoom());
+            if (isFollowing) {
+                map.panTo([lat, lng]);
+                if (heading !== null) rotateMap(heading);
+            }
 
             if (routeGeoJson) {
                 const userPt = turf.point([lng, lat]);
@@ -183,10 +217,11 @@
                 gradeEl.style.color = grade >= 6 ? "#e74c3c" : (grade >= 3 ? "#f1c40f" : "#fff");
                 document.getElementById('remain-val').innerText = Math.max(0, totalDist - curDist).toFixed(1);
 
-                const minX = curDist - WINDOW_MI, maxX = curDist + WINDOW_MI;
+                // Elevation Graph Window: User at 25% mark
+                const minX = curDist - (WINDOW_MI * 0.25); 
+                const maxX = curDist + (WINDOW_MI * 0.75);
                 chart.options.scales.x.min = minX; chart.options.scales.x.max = maxX;
                 
-                // FIX: Use the snapped KML elevation (e1) for the marker instead of raw GPS altitude
                 chart.data.datasets[1].data = [{ x: curDist, y: e1 }];
                 
                 const visible = routeData.filter(p => p.x >= minX && p.x <= maxX);
@@ -199,11 +234,24 @@
         }, null, { enableHighAccuracy: true });
     }
 
+    function getElevAtDist(targetDist) {
+        if (routeData.length === 0) return 0;
+        const target = Math.max(0, Math.min(targetDist, totalDist));
+        for (let i = 0; i < routeData.length - 1; i++) {
+            if (target >= routeData[i].x && target <= routeData[i+1].x) {
+                const ratio = (target - routeData[i].x) / (routeData[i+1].x - routeData[i].x);
+                return routeData[i].y + ratio * (routeData[i+1].y - routeData[i].y);
+            }
+        }
+        return routeData[routeData.length - 1].y;
+    }
+
     function loadKml(xmlString) {
         try {
             const geojson = toGeoJSON.kml(new DOMParser().parseFromString(xmlString, "text/xml"));
             const line = geojson.features.find(f => f.geometry.type === 'LineString');
             if (!line) return;
+            localStorage.setItem('cycling_route_foss', xmlString);
             const raw = line.geometry.coordinates;
             const smoothed = raw.map((c, i) => {
                 const win = raw.slice(Math.max(0, i-2), Math.min(raw.length, i+3));
@@ -223,7 +271,7 @@
             chart.update();
             if (kmlRouteLine) map.removeLayer(kmlRouteLine);
             kmlRouteLine = L.polyline(smoothed.map(c => [c[1], c[0]]), { color: '#000000', weight: 3, opacity: 0.8, dashArray: '8, 12' }).addTo(map);
-            if (isFollowing) map.fitBounds(kmlRouteLine.getBounds());
+            if (isFollowing) map.setView([smoothed[0][1], smoothed[0][0]], DEFAULT_ZOOM);
             setTimeout(() => { map.invalidateSize(); }, 500);
         } catch(e) { console.error("Parse Error", e); }
     }
