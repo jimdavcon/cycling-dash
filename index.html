@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro - Pulse HUD</title>
+    <title>CycleDash Pro - 1Hz Sync</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -23,12 +23,11 @@
         .label { font-size: 9px; font-weight: bold; color: #888; text-transform: uppercase; transition: color 0.05s linear; }
         .val-text { font-size: 17px; font-weight: bold; font-family: monospace; color: #fff; }
 
-        /* Pulse classes */
         .pulse-green { color: #2ecc71 !important; }
-        .active-shadow { text-shadow: 1px 1px 2px #000, 0 0 5px rgba(46, 204, 113, 0.5); }
+        .active-shadow { text-shadow: 1px 1px 2px #000, 0 0 8px rgba(46, 204, 113, 0.7); }
 
         #map { flex: 1; background: #111; position: relative; width: 100%; z-index: 1; overflow: hidden; }
-        .leaflet-map-pane { transition: none; } 
+        .leaflet-map-pane { transition: none !important; } 
 
         #compass-ui { position: absolute; top: 10px; left: 10px; z-index: 2000; width: 34px; height: 34px; background: rgba(0,0,0,0.6); border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid #555; pointer-events: none; }
         #needle { width: 2px; height: 24px; background: #e74c3c; position: relative; }
@@ -82,7 +81,7 @@
 <script>
     let map, chart, userMarker, snappedMarker, startMarker, endMarker, routeGeoJson, kmlRouteLine;
     let isFollowing = true, totalDist = 0, routeData = [];
-    let lastLat, lastLng;
+    let lastLat = null, lastLng = null, lastHeading = 0;
     const METERS_TO_FEET = 3.28084, MPS_TO_MPH = 2.23694, WINDOW_MI = 0.25, DEFAULT_ZOOM = 16;
 
     function updateTime() {
@@ -141,7 +140,7 @@
             isFollowing = true;
             this.style.opacity = '0';
             setTimeout(() => this.style.display = 'none', 500);
-            if(lastLat && lastLng) map.panTo([lastLat, lastLng]);
+            if(lastLat && lastLng) map.setView([lastLat, lastLng], map.getZoom(), { animate: false });
         };
 
         document.getElementById('fs-btn').onclick = () => {
@@ -170,47 +169,47 @@
         startGPS();
     }
 
-    // Combined visual heartbeat
-    function pulseUI() {
-        const statusEl = document.getElementById('status');
-        const timeLabel = document.getElementById('time-label');
+    function handleGPSUpdate(pos) {
+        const { latitude: lat, longitude: lng, speed, altitude, heading } = pos.coords;
+        lastLat = lat; lastLng = lng;
+        if (heading !== null) lastHeading = heading;
         
-        statusEl.classList.toggle('active-shadow');
-        timeLabel.classList.toggle('pulse-green');
+        // HEARTBEAT
+        document.getElementById('status').innerText = "GPS: LIVE";
+        document.getElementById('status').classList.toggle('active-shadow');
+        document.getElementById('time-label').classList.toggle('pulse-green');
+
+        // HUD DATA
+        document.getElementById('speed-val').innerText = speed ? (speed * MPS_TO_MPH).toFixed(1) : "0.0";
+        document.getElementById('elev-val').innerText = altitude ? Math.round(altitude * METERS_TO_FEET) : "---";
+        document.getElementById('heading-val').innerText = lastHeading ? Math.round(lastHeading) + "°" : "0°";
+        updateTime();
+
+        // MAP & ROTATION
+        userMarker.setLatLng([lat, lng]);
+        if (isFollowing) {
+            map.setView([lat, lng], map.getZoom(), { animate: false });
+            const pane = map.getPane('mapPane');
+            pane.style.transform = `rotate(${-lastHeading}deg)`;
+            document.getElementById('needle').style.transform = `rotate(${-lastHeading}deg)`;
+        }
+
+        // ROUTE CONTEXT
+        updateRouteContext(lat, lng);
     }
 
     function startGPS() {
-        navigator.geolocation.watchPosition((pos) => {
-            const { latitude: lat, longitude: lng, speed, altitude, heading } = pos.coords;
-            lastLat = lat; lastLng = lng;
-            
-            // Trigger visual pulse
-            pulseUI();
-            document.getElementById('status').innerText = "GPS: LIVE";
+        const options = { enableHighAccuracy: true, timeout: 1000, maximumAge: 0 };
+        
+        // High frequency watch
+        navigator.geolocation.watchPosition(handleGPSUpdate, 
+            (err) => { document.getElementById('status').innerText = "GPS: SEARCHING..."; }, 
+            options);
 
-            // Update all HUD fields
-            document.getElementById('speed-val').innerText = speed ? (speed * MPS_TO_MPH).toFixed(1) : "0.0";
-            document.getElementById('elev-val').innerText = altitude ? Math.round(altitude * METERS_TO_FEET) : "---";
-            document.getElementById('heading-val').innerText = heading ? Math.round(heading) + "°" : "0°";
-            updateTime();
-
-            // Sync Map
-            userMarker.setLatLng([lat, lng]);
-            if (isFollowing) {
-                map.setView([lat, lng], map.getZoom(), { animate: false });
-                if (heading !== null) {
-                    const pane = map.getPane('mapPane');
-                    pane.style.transform = `rotate(${-heading}deg)`;
-                    document.getElementById('needle').style.transform = `rotate(${-heading}deg)`;
-                }
-            }
-
-            // Sync Route Context and Elevation Chart
-            updateRouteContext(lat, lng);
-
-        }, (err) => {
-            document.getElementById('status').innerText = "GPS: ERR " + err.code;
-        }, { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 });
+        // Forced "Poke" to keep the browser hardware active at 1Hz
+        setInterval(() => {
+            navigator.geolocation.getCurrentPosition(handleGPSUpdate, () => {}, options);
+        }, 1500);
     }
 
     function updateRouteContext(lat, lng) {
@@ -267,6 +266,9 @@
 
         startMarker.setLatLng([processed[0][1], processed[0][0]]);
         endMarker.setLatLng([processed[processed.length-1][1], processed[processed.length-1][0]]);
+
+        // INSTANT HUD UPDATE ON ROUTE LOAD
+        if (lastLat && lastLng) updateRouteContext(lastLat, lastLng);
     }
 
     function loadKml(xmlString) {
