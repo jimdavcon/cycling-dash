@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro - Thicker Profile</title>
+    <title>CycleDash Pro - 3-Column HUD</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -17,11 +17,14 @@
         body, html { margin: 0; padding: 0; height: 100svh; width: 100%; overflow: hidden; background: #1a1a1a; font-family: -apple-system, system-ui, sans-serif; }
         #container { display: flex; flex-direction: column; height: 100svh; width: 100vw; }
         
-        #hud-header { background: #222; color: white; padding-top: var(--sat); display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid #444; flex-shrink: 0; z-index: 1000; height: 70px; }
-        .hud-column { display: flex; flex-direction: column; padding: 2px 12px; justify-content: center; }
+        #hud-header { background: #222; color: white; padding-top: var(--sat); display: grid; grid-template-columns: 1fr 1.2fr 1fr; border-bottom: 1px solid #444; flex-shrink: 0; z-index: 1000; height: 85px; }
+        .hud-column { display: flex; flex-direction: column; padding: 2px 8px; justify-content: center; }
         .data-row { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #333; padding: 1px 0; }
-        .label { font-size: 10px; font-weight: bold; color: #888; }
-        .val-text { font-size: 18px; font-weight: bold; font-family: monospace; color: #fff; }
+        .mid-row { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+        .label { font-size: 9px; font-weight: bold; color: #888; text-transform: uppercase; }
+        .val-text { font-size: 16px; font-weight: bold; font-family: monospace; color: #fff; }
+        #time-val { font-size: 20px; color: #3498db; }
+        #heading-val { font-size: 14px; color: #aaa; }
 
         #map { flex: 1; background: #111; position: relative; width: 100%; z-index: 1; overflow: hidden; }
         .leaflet-map-pane { transition: transform 0.8s cubic-bezier(0.4, 0, 0.2, 1); }
@@ -49,6 +52,10 @@
         <div class="hud-column">
             <div class="data-row"><span class="label">MPH</span><span class="val-text" id="speed-val">0.0</span></div>
             <div class="data-row"><span class="label">REMAIN</span><span class="val-text" id="remain-val">0.0</span></div>
+        </div>
+        <div class="hud-column">
+            <div class="mid-row"><span class="val-text" id="time-val">12:00 PM</span></div>
+            <div class="mid-row"><span class="label">HDG</span><span class="val-text" id="heading-val">0°</span></div>
         </div>
         <div class="hud-column">
             <div class="data-row"><span class="label">ELEV</span><span class="val-text" id="elev-val">---</span></div>
@@ -81,7 +88,20 @@
     const METERS_TO_FEET = 3.28084, MPS_TO_MPH = 2.23694, WINDOW_MI = 0.25, DEFAULT_ZOOM = 16;
     const DOT_TTL = 5 * 60 * 1000;
 
+    function updateTime() {
+        const now = new Date();
+        let hours = now.getHours();
+        const minutes = now.getMinutes().toString().padStart(2, '0');
+        const ampm = hours >= 12 ? 'PM' : 'AM';
+        hours = hours % 12;
+        hours = hours ? hours : 12; 
+        document.getElementById('time-val').innerText = `${hours}:${minutes} ${ampm}`;
+    }
+
     function init() {
+        setInterval(updateTime, 1000);
+        updateTime();
+
         map = L.map('map', { zoomControl: false, doubleClickZoom: false }).setView([0, 0], 2);
         L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png').addTo(map);
 
@@ -172,6 +192,7 @@
         pane.style.transformOrigin = "center";
         pane.style.transform = `rotate(${-heading}deg)`;
         document.getElementById('needle').style.transform = `rotate(${-heading}deg)`;
+        document.getElementById('heading-val').innerText = Math.round(heading) + "°";
     }
 
     function updateBreadcrumbs() {
