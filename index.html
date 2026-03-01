@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro - Axis Fix</title>
+    <title>CycleDash Pro - Route Reverse</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -34,9 +34,10 @@
         #chart-section { flex: 1; min-width: 0; position: relative; padding: 5px 5px 25px 5px; height: 100%; box-sizing: border-box; }
         #action-section { flex: 0 0 90px; display: flex; flex-direction: column; justify-content: space-evenly; align-items: center; background: #ececec; border-left: 1px solid #ccc; }
         
-        .action-btn { font-size: 10px; cursor: pointer; text-align: center; width: 80px; padding: 10px 0; background: #fff; border: 1px solid #999; border-radius: 4px; font-weight: bold; color: #333; }
+        .action-btn { font-size: 9px; cursor: pointer; text-align: center; width: 80px; padding: 8px 0; background: #fff; border: 1px solid #999; border-radius: 4px; font-weight: bold; color: #333; }
         #recenter-btn { background: #3498db; color: white; border: none; display: none; position: absolute; top: 10px; right: 10px; z-index: 2000; width: auto; padding: 8px 15px; opacity: 0; transition: opacity 0.5s ease; }
         #reset-btn { background: #fee; color: #c0392b; border: 1px solid #fcc; }
+        #rev-btn { background: #e8f4fd; color: #2980b9; border: 1px solid #abd4ed; }
         #status { position: absolute; bottom: 8px; left: 8px; z-index: 2000; font-size: 10px; color: #2ecc71; text-shadow: 1px 1px 1px #000; font-weight: bold; }
         canvas { width: 100% !important; height: 100% !important; }
     </style>
@@ -65,6 +66,7 @@
         <div id="chart-section"><canvas id="elevationChart"></canvas></div>
         <div id="action-section">
             <label class="action-btn">LOAD <input type="file" id="route-upload" accept=".kml,.kmz" style="display:none"></label>
+            <button class="action-btn" id="rev-btn">REVERSE</button>
             <button class="action-btn" id="fs-btn">FULL</button>
             <button class="action-btn" id="reset-btn">RESET</button>
         </div>
@@ -136,6 +138,12 @@
 
         document.getElementById('reset-btn').onclick = () => { localStorage.clear(); location.reload(); };
 
+        document.getElementById('rev-btn').onclick = () => {
+            if (!routeGeoJson) return;
+            const coords = [...routeGeoJson.geometry.coordinates].reverse();
+            processRoutePoints(coords);
+        };
+
         document.getElementById('route-upload').onchange = async (e) => {
             const file = e.target.files[0];
             if (!file) return;
@@ -196,36 +204,39 @@
             updateBreadcrumbs();
 
             if (isFollowing) {
-                map.panTo([lat, lng]);
+                map.panTo([lastLat, lastLng]);
                 if (heading !== null) rotateMap(heading);
             }
 
-            if (routeGeoJson) {
-                const userPt = turf.point([lng, lat]);
-                const snapped = turf.nearestPointOnLine(routeGeoJson, userPt, {units: 'miles'});
-                const curDist = snapped.properties.location;
-                snappedMarker.setLatLng([snapped.geometry.coordinates[1], snapped.geometry.coordinates[0]]);
-
-                const step = 0.01, e1 = getElevAtDist(curDist), e2 = getElevAtDist(curDist + step);
-                const grade = ((e2 - e1) / (step * 5280)) * 100;
-                document.getElementById('grade-val').innerText = isFinite(grade) ? grade.toFixed(1) : "0.0";
-                document.getElementById('remain-val').innerText = Math.max(0, totalDist - curDist).toFixed(1);
-
-                const minX = curDist - (WINDOW_MI * 0.25); 
-                const maxX = curDist + (WINDOW_MI * 0.75);
-                chart.options.scales.x.min = minX; 
-                chart.options.scales.x.max = maxX;
-                chart.data.datasets[1].data = [{ x: curDist, y: e1 }];
-
-                const visible = routeData.filter(p => p.x >= minX && p.x <= maxX);
-                if (visible.length > 0) {
-                    const eArr = visible.map(p => p.y);
-                    chart.options.scales.y.min = Math.min(...eArr) - 20; 
-                    chart.options.scales.y.max = Math.max(...eArr) + 20;
-                }
-                chart.update('none');
-            }
+            updateRouteContext(lat, lng);
         }, null, { enableHighAccuracy: true });
+    }
+
+    function updateRouteContext(lat, lng) {
+        if (!routeGeoJson) return;
+        const userPt = turf.point([lng, lat]);
+        const snapped = turf.nearestPointOnLine(routeGeoJson, userPt, {units: 'miles'});
+        const curDist = snapped.properties.location;
+        snappedMarker.setLatLng([snapped.geometry.coordinates[1], snapped.geometry.coordinates[0]]);
+
+        const step = 0.01, e1 = getElevAtDist(curDist), e2 = getElevAtDist(curDist + step);
+        const grade = ((e2 - e1) / (step * 5280)) * 100;
+        document.getElementById('grade-val').innerText = isFinite(grade) ? grade.toFixed(1) : "0.0";
+        document.getElementById('remain-val').innerText = Math.max(0, totalDist - curDist).toFixed(1);
+
+        const minX = curDist - (WINDOW_MI * 0.25); 
+        const maxX = curDist + (WINDOW_MI * 0.75);
+        chart.options.scales.x.min = minX; 
+        chart.options.scales.x.max = maxX;
+        chart.data.datasets[1].data = [{ x: curDist, y: e1 }];
+
+        const visible = routeData.filter(p => p.x >= minX && p.x <= maxX);
+        if (visible.length > 0) {
+            const eArr = visible.map(p => p.y);
+            chart.options.scales.y.min = Math.min(...eArr) - 20; 
+            chart.options.scales.y.max = Math.max(...eArr) + 20;
+        }
+        chart.update('none');
     }
 
     function getElevAtDist(targetDist) {
@@ -240,6 +251,38 @@
         return routeData[routeData.length - 1].y;
     }
 
+    function processRoutePoints(allCoords) {
+        const processed = allCoords.map((c, i) => {
+            const win = allCoords.slice(Math.max(0, i-2), Math.min(allCoords.length, i+3));
+            const avgElev = win.reduce((sum, pt) => sum + (pt[2] || 0), 0) / win.length;
+            // Handle KMLs that might not have elevation at all
+            const elev = isNaN(avgElev) ? 0 : avgElev;
+            // Coordinates are [lon, lat, elev]
+            return [c[0], c[1], elev];
+        });
+
+        routeGeoJson = { type: "Feature", geometry: { type: "LineString", coordinates: processed } };
+        
+        let d = 0; routeData = [{x: 0, y: processed[0][2]}];
+        for(let i=1; i < processed.length; i++) {
+            d += turf.distance(turf.point(processed[i-1]), turf.point(processed[i]), {units:'miles'});
+            routeData.push({x: d, y: processed[i][2]});
+        }
+        totalDist = d;
+
+        startMarker.setLatLng([processed[0][1], processed[0][0]]);
+        endMarker.setLatLng([processed[processed.length-1][1], processed[processed.length-1][0]]);
+        
+        chart.data.datasets[0].data = routeData;
+        chart.update();
+
+        if (kmlRouteLine) map.removeLayer(kmlRouteLine);
+        kmlRouteLine = L.polyline(processed.map(c => [c[1], c[0]]), { color: '#000', weight: 3, opacity: 0.8, dashArray: '8, 12' }).addTo(map);
+        
+        if (lastLat && lastLng) updateRouteContext(lastLat, lastLng);
+        else if (isFollowing) map.setView([processed[0][1], processed[0][0]], DEFAULT_ZOOM);
+    }
+
     function loadKml(xmlString) {
         try {
             const dom = new DOMParser().parseFromString(xmlString, "text/xml");
@@ -251,25 +294,11 @@
             });
             if (allCoords.length === 0) return;
             localStorage.setItem('cycling_route_foss', xmlString);
-            const processed = allCoords.map((c, i) => {
-                const win = allCoords.slice(Math.max(0, i-2), Math.min(allCoords.length, i+3));
-                const avgElev = win.reduce((sum, pt) => sum + (pt[2] || 0), 0) / win.length;
-                return [c[0], c[1], avgElev * METERS_TO_FEET];
-            });
-            routeGeoJson = { type: "Feature", geometry: { type: "LineString", coordinates: processed } };
-            let d = 0; routeData = [{x: 0, y: processed[0][2]}];
-            for(let i=1; i < processed.length; i++) {
-                d += turf.distance(turf.point(processed[i-1]), turf.point(processed[i]), {units:'miles'});
-                routeData.push({x: d, y: processed[i][2]});
-            }
-            totalDist = d;
-            startMarker.setLatLng([processed[0][1], processed[0][0]]);
-            endMarker.setLatLng([processed[processed.length-1][1], processed[processed.length-1][0]]);
-            chart.data.datasets[0].data = routeData;
-            chart.update();
-            if (kmlRouteLine) map.removeLayer(kmlRouteLine);
-            kmlRouteLine = L.polyline(processed.map(c => [c[1], c[0]]), { color: '#000', weight: 3, opacity: 0.8, dashArray: '8, 12' }).addTo(map);
-            if (isFollowing) map.setView([processed[0][1], processed[0][0]], DEFAULT_ZOOM);
+            
+            // Initial KML often has meters, we convert to feet here
+            const coordsWithFeet = allCoords.map(c => [c[0], c[1], (c[2] || 0) * METERS_TO_FEET]);
+            processRoutePoints(coordsWithFeet);
+
             setTimeout(() => { map.invalidateSize(); }, 500);
         } catch(e) { console.error("Parse Error", e); }
     }
