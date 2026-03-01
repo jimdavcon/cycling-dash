@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro - Compressed HUD</title>
+    <title>CycleDash Pro - High Accuracy</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -17,7 +17,6 @@
         body, html { margin: 0; padding: 0; height: 100svh; width: 100%; overflow: hidden; background: #1a1a1a; font-family: -apple-system, system-ui, sans-serif; }
         #container { display: flex; flex-direction: column; height: 100svh; width: 100vw; }
         
-        /* Compressed HUD height to 60px and tighter padding */
         #hud-header { background: #222; color: white; padding-top: var(--sat); display: grid; grid-template-columns: 1fr 1.1fr 1fr; border-bottom: 1px solid #444; flex-shrink: 0; z-index: 1000; height: 60px; }
         .hud-column { display: flex; flex-direction: column; padding: 0px 10px; justify-content: center; }
         .data-row { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #333; padding: 0px 0; line-height: 1.2; }
@@ -25,10 +24,10 @@
         .val-text { font-size: 17px; font-weight: bold; font-family: monospace; color: #fff; }
 
         #map { flex: 1; background: #111; position: relative; width: 100%; z-index: 1; overflow: hidden; }
-        .leaflet-map-pane { transition: transform 0.8s cubic-bezier(0.4, 0, 0.2, 1); }
+        .leaflet-map-pane { transition: transform 0.3s linear; } /* Smoother for fast updates */
 
         #compass-ui { position: absolute; top: 10px; left: 10px; z-index: 2000; width: 34px; height: 34px; background: rgba(0,0,0,0.6); border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid #555; pointer-events: none; }
-        #needle { width: 2px; height: 24px; background: #e74c3c; position: relative; transition: transform 0.8s; }
+        #needle { width: 2px; height: 24px; background: #e74c3c; position: relative; transition: transform 0.3s; }
         #needle::after { content: ''; position: absolute; bottom: 0; left: 0; width: 2px; height: 50%; background: #fff; }
 
         #bottom-tray { display: flex; height: 140px; background: #fff; border-top: 2px solid #333; padding-bottom: var(--sab); flex-shrink: 0; width: 100%; z-index: 1000; box-sizing: border-box; }
@@ -52,7 +51,7 @@
             <div class="data-row"><span class="label">REM</span><span class="val-text" id="remain-val">0.0</span></div>
         </div>
         <div class="hud-column">
-            <div class="data-row"><span class="label">TIME</span><span class="val-text" id="time-val">12:00p</span></div>
+            <div class="data-row"><span class="label">TIME</span><span class="val-text" id="time-val">--:--</span></div>
             <div class="data-row"><span class="label">HDG</span><span class="val-text" id="heading-val">0°</span></div>
         </div>
         <div class="hud-column">
@@ -82,17 +81,16 @@
     let map, chart, userMarker, snappedMarker, startMarker, endMarker, routeGeoJson, kmlRouteLine;
     let isFollowing = true, totalDist = 0, routeData = [];
     let breadcrumbDots = [];
-    let lastLat, lastLng, lastUpdateTime = 0;
+    let lastLat, lastLng, lastBreadcrumbTime = 0;
     const METERS_TO_FEET = 3.28084, MPS_TO_MPH = 2.23694, WINDOW_MI = 0.25, DEFAULT_ZOOM = 16;
-    const DOT_TTL = 5 * 60 * 1000;
+    const BREADCRUMB_INTERVAL = 5000; // Keep dots at 5s intervals to avoid clutter
 
     function updateTime() {
         const now = new Date();
         let hours = now.getHours();
         const minutes = now.getMinutes().toString().padStart(2, '0');
         const ampm = hours >= 12 ? 'p' : 'a';
-        hours = hours % 12;
-        hours = hours ? hours : 12; 
+        hours = hours % 12 || 12;
         document.getElementById('time-val').innerText = `${hours}:${minutes}${ampm}`;
     }
 
@@ -140,8 +138,6 @@
             setTimeout(() => btn.style.opacity = '1', 10);
         });
 
-        map.on('dblclick', () => { map.setZoom(DEFAULT_ZOOM); });
-
         document.getElementById('recenter-btn').onclick = function() {
             isFollowing = true;
             this.style.opacity = '0';
@@ -156,27 +152,12 @@
 
         document.getElementById('reset-btn').onclick = () => { localStorage.clear(); location.reload(); };
 
-        document.getElementById('rev-btn').onclick = () => {
-            if (!routeGeoJson) return;
-            const coords = [...routeGeoJson.geometry.coordinates].reverse();
-            processRoutePoints(coords);
-        };
-
         document.getElementById('route-upload').onchange = async (e) => {
             const file = e.target.files[0];
             if (!file) return;
-            if (file.name.toLowerCase().endsWith('.kmz')) {
-                const zip = await JSZip.loadAsync(file);
-                const kmlFile = Object.values(zip.files).find(f => f.name.toLowerCase().endsWith('.kml'));
-                if (kmlFile) {
-                    const kmlText = await kmlFile.async("string");
-                    loadKml(kmlText);
-                }
-            } else {
-                const reader = new FileReader();
-                reader.onload = (ev) => { loadKml(ev.target.result); };
-                reader.readAsText(file);
-            }
+            const reader = new FileReader();
+            reader.onload = (ev) => { loadKml(ev.target.result); };
+            reader.readAsText(file);
         };
 
         const saved = localStorage.getItem('cycling_route_foss');
@@ -187,40 +168,30 @@
     function rotateMap(heading) {
         if (heading === null || heading === undefined) return;
         const pane = map.getPane('mapPane');
-        pane.style.transformOrigin = "center";
         pane.style.transform = `rotate(${-heading}deg)`;
         document.getElementById('needle').style.transform = `rotate(${-heading}deg)`;
         document.getElementById('heading-val').innerText = Math.round(heading) + "°";
     }
 
-    function updateBreadcrumbs() {
-        const now = Date.now();
-        if (lastLat && lastLng) {
-            const dot = L.circleMarker([lastLat, lastLng], { radius: 4, stroke: false, fillColor: '#3498db', fillOpacity: 0.5 }).addTo(map);
-            breadcrumbDots.push({ marker: dot, time: now });
-        }
-        breadcrumbDots = breadcrumbDots.filter(d => {
-            if (now - d.time > DOT_TTL) { map.removeLayer(d.marker); return false; }
-            return true;
-        });
-    }
-
     function startGPS() {
+        // Updated watchPosition for maximum accuracy and speed
         navigator.geolocation.watchPosition((pos) => {
-            const now = Date.now();
-            if (now - lastUpdateTime < 5000) return;
-            lastUpdateTime = now;
-
             const { latitude: lat, longitude: lng, speed, altitude, heading } = pos.coords;
             lastLat = lat; lastLng = lng;
-            const curElev = altitude ? Math.round(altitude * METERS_TO_FEET) : 0;
             
-            document.getElementById('status').innerText = "GPS: OK";
+            const curElev = altitude ? Math.round(altitude * METERS_TO_FEET) : 0;
+            document.getElementById('status').innerText = "GPS: LIVE";
             document.getElementById('speed-val').innerText = speed ? (speed * MPS_TO_MPH).toFixed(1) : "0.0";
             document.getElementById('elev-val').innerText = curElev || "---";
             
             userMarker.setLatLng([lat, lng]);
-            updateBreadcrumbs();
+
+            // Still throttle breadcrumbs so we don't draw 1000 dots a minute
+            const now = Date.now();
+            if (now - lastBreadcrumbTime > BREADCRUMB_INTERVAL) {
+                L.circleMarker([lat, lng], { radius: 4, stroke: false, fillColor: '#3498db', fillOpacity: 0.5 }).addTo(map);
+                lastBreadcrumbTime = now;
+            }
 
             if (isFollowing) {
                 map.panTo([lat, lng]);
@@ -228,7 +199,13 @@
             }
 
             updateRouteContext(lat, lng);
-        }, null, { enableHighAccuracy: true });
+        }, (err) => {
+            document.getElementById('status').innerText = "GPS: ERR " + err.code;
+        }, { 
+            enableHighAccuracy: true, 
+            timeout: 10000, 
+            maximumAge: 0 // Force fresh data
+        });
     }
 
     function updateRouteContext(lat, lng) {
@@ -271,13 +248,7 @@
     }
 
     function processRoutePoints(allCoords) {
-        const processed = allCoords.map((c, i) => {
-            const win = allCoords.slice(Math.max(0, i-2), Math.min(allCoords.length, i+3));
-            const avgElev = win.reduce((sum, pt) => sum + (pt[2] || 0), 0) / win.length;
-            const elev = isNaN(avgElev) ? 0 : avgElev;
-            return [c[0], c[1], elev];
-        });
-
+        const processed = allCoords.map(c => [c[0], c[1], (c[2] || 0) * METERS_TO_FEET]);
         routeGeoJson = { type: "Feature", geometry: { type: "LineString", coordinates: processed } };
         
         let d = 0; routeData = [{x: 0, y: processed[0][2]}];
@@ -286,17 +257,12 @@
             routeData.push({x: d, y: processed[i][2]});
         }
         totalDist = d;
-
-        startMarker.setLatLng([processed[0][1], processed[0][0]]);
-        endMarker.setLatLng([processed[processed.length-1][1], processed[processed.length-1][0]]);
         
         chart.data.datasets[0].data = routeData;
         chart.update();
 
         if (kmlRouteLine) map.removeLayer(kmlRouteLine);
         kmlRouteLine = L.polyline(processed.map(c => [c[1], c[0]]), { color: '#000', weight: 3, opacity: 0.8, dashArray: '8, 12' }).addTo(map);
-        
-        if (lastLat && lastLng) updateRouteContext(lastLat, lastLng);
     }
 
     function loadKml(xmlString) {
@@ -306,16 +272,11 @@
             let allCoords = [];
             geojson.features.forEach(f => {
                 if (f.geometry.type === 'LineString') allCoords = allCoords.concat(f.geometry.coordinates);
-                else if (f.geometry.type === 'MultiLineString') f.geometry.coordinates.forEach(line => { allCoords = allCoords.concat(line); });
             });
             if (allCoords.length === 0) return;
             localStorage.setItem('cycling_route_foss', xmlString);
-            
-            const coordsWithFeet = allCoords.map(c => [c[0], c[1], (c[2] || 0) * METERS_TO_FEET]);
-            processRoutePoints(coordsWithFeet);
-
-            setTimeout(() => { map.invalidateSize(); }, 500);
-        } catch(e) { console.error("Parse Error", e); }
+            processRoutePoints(allCoords);
+        } catch(e) { console.error(e); }
     }
     window.onload = init;
 </script>
