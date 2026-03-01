@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro - Y-Axis Fix</title>
+    <title>CycleDash Pro - Decoupled Sync</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -23,8 +23,9 @@
         .label { font-size: 9px; font-weight: bold; color: #888; text-transform: uppercase; transition: color 0.05s linear; }
         .val-text { font-size: 17px; font-weight: bold; font-family: monospace; color: #fff; }
 
-        .pulse-green { color: #2ecc71 !important; }
-        .active-shadow { text-shadow: 1px 1px 2px #000, 0 0 8px rgba(46, 204, 113, 0.7); }
+        /* Decoupled Pulse Styles */
+        .pulse-green { color: #2ecc71 !important; } /* GPS Data Pulse */
+        .active-shadow { text-shadow: 1px 1px 2px #000, 0 0 8px rgba(46, 204, 113, 0.7); } /* Map Render Pulse */
 
         #map { flex: 1; background: #111; position: relative; width: 100%; z-index: 1; overflow: hidden; }
         .leaflet-map-pane { transition: none !important; } 
@@ -140,7 +141,7 @@
             isFollowing = true;
             this.style.opacity = '0';
             setTimeout(() => this.style.display = 'none', 500);
-            if(lastLat && lastLng) map.setView([lastLat, lastLng], map.getZoom(), { animate: false });
+            if(lastLat && lastLng) updateMapDisplay(lastLat, lastLng);
         };
 
         document.getElementById('fs-btn').onclick = () => {
@@ -152,7 +153,6 @@
 
         document.getElementById('rev-btn').onclick = () => {
             if (!routeGeoJson) return;
-            // Clear current data and reverse coordinates
             const coords = [...routeGeoJson.geometry.coordinates].reverse();
             processRoutePoints(coords);
         };
@@ -170,52 +170,29 @@
         startGPS();
     }
 
-    function processRoutePoints(allCoords) {
-        // 1. Reset everything to prevent Y-axis or X-axis growth
-        routeData = [];
-        totalDist = 0;
-        
-        // 2. Ensure we have clean feet values for Y-axis
-        const processed = allCoords.map(c => [c[0], c[1], (c[2] || 0) * METERS_TO_FEET]);
-        routeGeoJson = { type: "Feature", geometry: { type: "LineString", coordinates: processed } };
-        
-        // 3. Rebuild routeData for the chart
-        let d = 0; 
-        routeData.push({x: 0, y: processed[0][2]});
-        
-        for(let i=1; i < processed.length; i++) {
-            d += turf.distance(turf.point(processed[i-1]), turf.point(processed[i]), {units:'miles'});
-            routeData.push({x: d, y: processed[i][2]});
-        }
-        totalDist = d;
-        
-        chart.data.datasets[0].data = routeData;
-        chart.update();
-
-        // 4. Update Map Visuals
-        if (kmlRouteLine) map.removeLayer(kmlRouteLine);
-        kmlRouteLine = L.polyline(processed.map(c => [c[1], c[0]]), { color: '#000', weight: 3, opacity: 0.8, dashArray: '8, 12' }).addTo(map);
-
-        startMarker.setLatLng([processed[0][1], processed[0][0]]);
-        endMarker.setLatLng([processed[processed.length-1][1], processed[processed.length-1][0]]);
-
-        // 5. Instant HUD update
-        if (lastLat && lastLng) updateRouteContext(lastLat, lastLng);
-    }
-
     function handleGPSUpdate(pos) {
         const { latitude: lat, longitude: lng, speed, altitude, heading } = pos.coords;
         lastLat = lat; lastLng = lng;
         if (heading !== null) lastHeading = heading;
         
-        document.getElementById('status').innerText = "GPS: LIVE";
-        document.getElementById('status').classList.toggle('active-shadow');
+        // HEARTBEAT 1: GPS DATA RECEIVED
         document.getElementById('time-label').classList.toggle('pulse-green');
-
+        
+        // HUD FIELDS
         document.getElementById('speed-val').innerText = speed ? (speed * MPS_TO_MPH).toFixed(1) : "0.0";
         document.getElementById('elev-val').innerText = altitude ? Math.round(altitude * METERS_TO_FEET) : "---";
         document.getElementById('heading-val').innerText = lastHeading ? Math.round(lastHeading) + "°" : "0°";
         updateTime();
+
+        // TRIGGER RENDER
+        updateMapDisplay(lat, lng);
+        updateRouteContext(lat, lng);
+    }
+
+    function updateMapDisplay(lat, lng) {
+        // HEARTBEAT 2: MAP REDRAW START
+        document.getElementById('status').innerText = "GPS: LIVE";
+        document.getElementById('status').classList.toggle('active-shadow');
 
         userMarker.setLatLng([lat, lng]);
         if (isFollowing) {
@@ -224,7 +201,6 @@
             pane.style.transform = `rotate(${-lastHeading}deg)`;
             document.getElementById('needle').style.transform = `rotate(${-lastHeading}deg)`;
         }
-        updateRouteContext(lat, lng);
     }
 
     function startGPS() {
@@ -271,6 +247,34 @@
             }
         }
         return routeData[routeData.length - 1].y;
+    }
+
+    function processRoutePoints(allCoords) {
+        routeData = [];
+        const processed = allCoords.map(c => [c[0], c[1], (c[2] || 0) * METERS_TO_FEET]);
+        routeGeoJson = { type: "Feature", geometry: { type: "LineString", coordinates: processed } };
+        
+        let d = 0; 
+        routeData.push({x: 0, y: processed[0][2]});
+        for(let i=1; i < processed.length; i++) {
+            d += turf.distance(turf.point(processed[i-1]), turf.point(processed[i]), {units:'miles'});
+            routeData.push({x: d, y: processed[i][2]});
+        }
+        totalDist = d;
+        
+        chart.data.datasets[0].data = routeData;
+        chart.update();
+
+        if (kmlRouteLine) map.removeLayer(kmlRouteLine);
+        kmlRouteLine = L.polyline(processed.map(c => [c[1], c[0]]), { color: '#000', weight: 3, opacity: 0.8, dashArray: '8, 12' }).addTo(map);
+
+        startMarker.setLatLng([processed[0][1], processed[0][0]]);
+        endMarker.setLatLng([processed[processed.length-1][1], processed[processed.length-1][0]]);
+
+        if (lastLat && lastLng) {
+            updateMapDisplay(lastLat, lastLng);
+            updateRouteContext(lastLat, lastLng);
+        }
     }
 
     function loadKml(xmlString) {
