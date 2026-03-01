@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro - Logic Fix</title>
+    <title>CycleDash Pro - Clipping Fix</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -80,8 +80,8 @@
 
 <script>
     let map, chart, userMarker, snappedMarker, startMarker, endMarker;
-    let masterCoords = []; // The source coordinates (meters)
-    let routeGeoJson = null; // The processed Turf object
+    let masterCoords = []; 
+    let routeGeoJson = null; 
     let kmlRouteLine = null;
     let isFollowing = true, totalDist = 0, routeData = [];
     let lastLat = null, lastLng = null, lastHeading = 0;
@@ -119,7 +119,16 @@
                     const grade = ((p2.y - p1.y) / ((p2.x - p1.x) * 5280)) * 100;
                     return grade >= 6 ? '#e74c3c' : (grade >= 3 ? '#f1c40f' : '#27ae60');
                 }}}, 
-                { id: 'user-pos', data: [], pointRadius: 7, pointBackgroundColor: '#f39c12', pointBorderColor: '#fff', pointBorderWidth: 2, showLine: false }
+                { 
+                    id: 'user-pos', 
+                    data: [], 
+                    pointRadius: 7, 
+                    pointBackgroundColor: '#f39c12', 
+                    pointBorderColor: '#fff', 
+                    pointBorderWidth: 2, 
+                    showLine: false,
+                    clip: false // Prevents the orange marker from disappearing at chart edges
+                }
             ]},
             options: { 
                 responsive: true, maintainAspectRatio: false, 
@@ -155,8 +164,8 @@
 
         document.getElementById('rev-btn').onclick = () => {
             if (masterCoords.length === 0) return;
-            masterCoords.reverse(); // Flip the original source array
-            processRoutePoints(masterCoords); // Re-process from source
+            masterCoords.reverse(); 
+            processRoutePoints(masterCoords); 
         };
 
         document.getElementById('route-upload').onchange = async (e) => {
@@ -173,14 +182,9 @@
     }
 
     function processRoutePoints(sourceCoords) {
-        // ALWAYS CLEAR ARRAYS FIRST
         routeData = [];
         totalDist = 0;
-
-        // Map source (meters) to processed feet only for this instance
         const processed = sourceCoords.map(c => [c[0], c[1], (c[2] || 0) * METERS_TO_FEET]);
-        
-        // Update the Turf reference used for snapping
         routeGeoJson = { type: "Feature", geometry: { type: "LineString", coordinates: processed } };
         
         let d = 0; 
@@ -211,7 +215,6 @@
         lastLat = lat; lastLng = lng;
         if (heading !== null) lastHeading = heading;
         
-        // GPS DATA HEARTBEAT
         document.getElementById('time-label').classList.toggle('pulse-green');
         
         document.getElementById('speed-val').innerText = speed ? (speed * MPS_TO_MPH).toFixed(1) : "0.0";
@@ -224,7 +227,6 @@
     }
 
     function updateMapDisplay(lat, lng) {
-        // RENDER HEARTBEAT
         document.getElementById('status').innerText = "GPS: LIVE";
         document.getElementById('status').classList.toggle('active-shadow');
 
@@ -290,7 +292,7 @@
             });
             if (allCoords.length === 0) return;
             
-            masterCoords = allCoords; // Store pure meter-based coords
+            masterCoords = allCoords; 
             localStorage.setItem('cycling_route_foss', xmlString);
             processRoutePoints(masterCoords);
         } catch(e) { console.error(e); }
