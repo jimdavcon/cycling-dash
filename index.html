@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro - Decoupled Sync</title>
+    <title>CycleDash Pro - Logic Fix</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -23,9 +23,8 @@
         .label { font-size: 9px; font-weight: bold; color: #888; text-transform: uppercase; transition: color 0.05s linear; }
         .val-text { font-size: 17px; font-weight: bold; font-family: monospace; color: #fff; }
 
-        /* Decoupled Pulse Styles */
-        .pulse-green { color: #2ecc71 !important; } /* GPS Data Pulse */
-        .active-shadow { text-shadow: 1px 1px 2px #000, 0 0 8px rgba(46, 204, 113, 0.7); } /* Map Render Pulse */
+        .pulse-green { color: #2ecc71 !important; }
+        .active-shadow { text-shadow: 1px 1px 2px #000, 0 0 8px rgba(46, 204, 113, 0.7); }
 
         #map { flex: 1; background: #111; position: relative; width: 100%; z-index: 1; overflow: hidden; }
         .leaflet-map-pane { transition: none !important; } 
@@ -80,7 +79,10 @@
 </div>
 
 <script>
-    let map, chart, userMarker, snappedMarker, startMarker, endMarker, routeGeoJson, kmlRouteLine;
+    let map, chart, userMarker, snappedMarker, startMarker, endMarker;
+    let masterCoords = []; // The source coordinates (meters)
+    let routeGeoJson = null; // The processed Turf object
+    let kmlRouteLine = null;
     let isFollowing = true, totalDist = 0, routeData = [];
     let lastLat = null, lastLng = null, lastHeading = 0;
     const METERS_TO_FEET = 3.28084, MPS_TO_MPH = 2.23694, WINDOW_MI = 0.25, DEFAULT_ZOOM = 16;
@@ -152,9 +154,9 @@
         document.getElementById('reset-btn').onclick = () => { localStorage.clear(); location.reload(); };
 
         document.getElementById('rev-btn').onclick = () => {
-            if (!routeGeoJson) return;
-            const coords = [...routeGeoJson.geometry.coordinates].reverse();
-            processRoutePoints(coords);
+            if (masterCoords.length === 0) return;
+            masterCoords.reverse(); // Flip the original source array
+            processRoutePoints(masterCoords); // Re-process from source
         };
 
         document.getElementById('route-upload').onchange = async (e) => {
@@ -170,27 +172,59 @@
         startGPS();
     }
 
+    function processRoutePoints(sourceCoords) {
+        // ALWAYS CLEAR ARRAYS FIRST
+        routeData = [];
+        totalDist = 0;
+
+        // Map source (meters) to processed feet only for this instance
+        const processed = sourceCoords.map(c => [c[0], c[1], (c[2] || 0) * METERS_TO_FEET]);
+        
+        // Update the Turf reference used for snapping
+        routeGeoJson = { type: "Feature", geometry: { type: "LineString", coordinates: processed } };
+        
+        let d = 0; 
+        routeData.push({x: 0, y: processed[0][2]});
+        for(let i=1; i < processed.length; i++) {
+            d += turf.distance(turf.point(processed[i-1]), turf.point(processed[i]), {units:'miles'});
+            routeData.push({x: d, y: processed[i][2]});
+        }
+        totalDist = d;
+        
+        chart.data.datasets[0].data = routeData;
+        chart.update();
+
+        if (kmlRouteLine) map.removeLayer(kmlRouteLine);
+        kmlRouteLine = L.polyline(processed.map(c => [c[1], c[0]]), { color: '#000', weight: 3, opacity: 0.8, dashArray: '8, 12' }).addTo(map);
+
+        startMarker.setLatLng([processed[0][1], processed[0][0]]);
+        endMarker.setLatLng([processed[processed.length-1][1], processed[processed.length-1][0]]);
+
+        if (lastLat && lastLng) {
+            updateMapDisplay(lastLat, lastLng);
+            updateRouteContext(lastLat, lastLng);
+        }
+    }
+
     function handleGPSUpdate(pos) {
         const { latitude: lat, longitude: lng, speed, altitude, heading } = pos.coords;
         lastLat = lat; lastLng = lng;
         if (heading !== null) lastHeading = heading;
         
-        // HEARTBEAT 1: GPS DATA RECEIVED
+        // GPS DATA HEARTBEAT
         document.getElementById('time-label').classList.toggle('pulse-green');
         
-        // HUD FIELDS
         document.getElementById('speed-val').innerText = speed ? (speed * MPS_TO_MPH).toFixed(1) : "0.0";
         document.getElementById('elev-val').innerText = altitude ? Math.round(altitude * METERS_TO_FEET) : "---";
         document.getElementById('heading-val').innerText = lastHeading ? Math.round(lastHeading) + "°" : "0°";
         updateTime();
 
-        // TRIGGER RENDER
         updateMapDisplay(lat, lng);
         updateRouteContext(lat, lng);
     }
 
     function updateMapDisplay(lat, lng) {
-        // HEARTBEAT 2: MAP REDRAW START
+        // RENDER HEARTBEAT
         document.getElementById('status').innerText = "GPS: LIVE";
         document.getElementById('status').classList.toggle('active-shadow');
 
@@ -215,11 +249,7 @@
     }
 
     function updateRouteContext(lat, lng) {
-        if (!routeGeoJson) {
-            document.getElementById('grade-val').innerText = "---";
-            document.getElementById('remain-val').innerText = "---";
-            return;
-        }
+        if (!routeGeoJson) return;
 
         const userPt = turf.point([lng, lat]);
         const snapped = turf.nearestPointOnLine(routeGeoJson, userPt, {units: 'miles'});
@@ -249,34 +279,6 @@
         return routeData[routeData.length - 1].y;
     }
 
-    function processRoutePoints(allCoords) {
-        routeData = [];
-        const processed = allCoords.map(c => [c[0], c[1], (c[2] || 0) * METERS_TO_FEET]);
-        routeGeoJson = { type: "Feature", geometry: { type: "LineString", coordinates: processed } };
-        
-        let d = 0; 
-        routeData.push({x: 0, y: processed[0][2]});
-        for(let i=1; i < processed.length; i++) {
-            d += turf.distance(turf.point(processed[i-1]), turf.point(processed[i]), {units:'miles'});
-            routeData.push({x: d, y: processed[i][2]});
-        }
-        totalDist = d;
-        
-        chart.data.datasets[0].data = routeData;
-        chart.update();
-
-        if (kmlRouteLine) map.removeLayer(kmlRouteLine);
-        kmlRouteLine = L.polyline(processed.map(c => [c[1], c[0]]), { color: '#000', weight: 3, opacity: 0.8, dashArray: '8, 12' }).addTo(map);
-
-        startMarker.setLatLng([processed[0][1], processed[0][0]]);
-        endMarker.setLatLng([processed[processed.length-1][1], processed[processed.length-1][0]]);
-
-        if (lastLat && lastLng) {
-            updateMapDisplay(lastLat, lastLng);
-            updateRouteContext(lastLat, lastLng);
-        }
-    }
-
     function loadKml(xmlString) {
         try {
             const dom = new DOMParser().parseFromString(xmlString, "text/xml");
@@ -287,8 +289,10 @@
                 else if (f.geometry.type === 'MultiLineString') f.geometry.coordinates.forEach(line => { allCoords = allCoords.concat(line); });
             });
             if (allCoords.length === 0) return;
+            
+            masterCoords = allCoords; // Store pure meter-based coords
             localStorage.setItem('cycling_route_foss', xmlString);
-            processRoutePoints(allCoords);
+            processRoutePoints(masterCoords);
         } catch(e) { console.error(e); }
     }
 
