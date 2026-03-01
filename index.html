@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash KMZ-Pro</title>
+    <title>CycleDash ElevAlign</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -69,7 +69,7 @@
 <script>
     let map, chart, userMarker, snappedMarker, startMarker, endMarker, breadcrumbLine, routeGeoJson, kmlRouteLine;
     let isFollowing = true, totalDist = 0, routeData = [], breadcrumbCoords = [];
-    let lastLat, lastLng;
+    let lastLat, lastLng, lastUpdateTime = 0;
     const METERS_TO_FEET = 3.28084, MPS_TO_MPH = 2.23694, FEET_LIMIT = 500, WINDOW_MI = 0.25;
 
     function init() {
@@ -115,11 +115,9 @@
         window.addEventListener('resize', () => { setTimeout(() => { map.invalidateSize(); chart.resize(); chart.update('none'); }, 200); });
         document.getElementById('reset-btn').onclick = () => { localStorage.clear(); location.reload(); };
 
-        // Handle both KML and KMZ file uploads
         document.getElementById('route-upload').onchange = async (e) => {
             const file = e.target.files[0];
             if (!file) return;
-
             if (file.name.toLowerCase().endsWith('.kmz')) {
                 const zip = await JSZip.loadAsync(file);
                 const kmlFile = Object.values(zip.files).find(f => f.name.toLowerCase().endsWith('.kml'));
@@ -154,12 +152,18 @@
 
     function startGPS() {
         navigator.geolocation.watchPosition((pos) => {
+            const now = Date.now();
+            if (now - lastUpdateTime < 5000) return;
+            lastUpdateTime = now;
+
             const { latitude: lat, longitude: lng, speed, altitude } = pos.coords;
             lastLat = lat; lastLng = lng;
             const curElev = altitude ? Math.round(altitude * METERS_TO_FEET) : 0;
+            
             document.getElementById('status').innerText = "GPS: OK";
             document.getElementById('speed-val').innerText = speed ? (speed * MPS_TO_MPH).toFixed(1) : "0.0";
             document.getElementById('elev-val').innerText = curElev || "---";
+            
             userMarker.setLatLng([lat, lng]);
             breadcrumbCoords.push([lat, lng]);
             breadcrumbLine.setLatLngs(breadcrumbCoords);
@@ -181,7 +185,10 @@
 
                 const minX = curDist - WINDOW_MI, maxX = curDist + WINDOW_MI;
                 chart.options.scales.x.min = minX; chart.options.scales.x.max = maxX;
-                chart.data.datasets[1].data = [{ x: curDist, y: curElev || e1 }];
+                
+                // FIX: Use the snapped KML elevation (e1) for the marker instead of raw GPS altitude
+                chart.data.datasets[1].data = [{ x: curDist, y: e1 }];
+                
                 const visible = routeData.filter(p => p.x >= minX && p.x <= maxX);
                 if (visible.length > 0) {
                     const eArr = visible.map(p => p.y);
