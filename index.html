@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro - Restored HUD</title>
+    <title>CycleDash Pro - Zoom Locked</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -16,19 +16,15 @@
         body, html { margin: 0; padding: 0; height: 100svh; width: 100%; overflow: hidden; background: #1a1a1a; font-family: -apple-system, system-ui, sans-serif; }
         #container { display: flex; flex-direction: column; height: 100svh; width: 100vw; }
         
-        /* HUD Header Styling */
         #hud-header { background: #222; color: white; padding-top: var(--sat); display: grid; grid-template-columns: 1fr 1.1fr 1fr; border-bottom: 1px solid #444; flex-shrink: 0; z-index: 1000; height: 60px; }
         .hud-column { display: flex; flex-direction: column; padding: 0px 10px; justify-content: center; }
         .data-row { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #333; padding: 0px 0; line-height: 1.2; }
         .label { font-size: 9px; font-weight: bold; color: #888; text-transform: uppercase; }
-        
-        /* Restored val-text size for all headers including time */
         .val-text { font-size: 17px; font-weight: bold; font-family: monospace; color: #fff; }
 
         .pulse-green { color: #2ecc71 !important; } 
         .pulse-yellow { color: #f1c40f !important; }
         .pulse-red { color: #e74c3c !important; }
-        .active-shadow { text-shadow: 0 0 10px rgba(46, 204, 113, 1); color: #fff !important; }
 
         #map { flex: 1; background: #111; position: relative; width: 100%; z-index: 1; overflow: hidden; }
         
@@ -42,7 +38,7 @@
         
         .action-btn { font-size: 9px; cursor: pointer; text-align: center; width: 80px; padding: 8px 0; background: #fff; border: 1px solid #999; border-radius: 4px; font-weight: bold; color: #333; }
         #status { position: absolute; bottom: 8px; left: 8px; z-index: 2000; font-size: 10px; color: #2ecc71; font-weight: bold; font-family: monospace; }
-        #recenter-btn { position: absolute; top: 10px; right: 10px; z-index: 2000; background: #3498db; color: white; border: none; display: none; padding: 10px 15px; font-size: 11px; font-weight: bold; border-radius: 4px; cursor: pointer; }
+        #recenter-btn { position: absolute; top: 10px; right: 10px; z-index: 2000; background: #3498db; color: white; border: none; display: none; padding: 10px 15px; font-size: 11px; font-weight: bold; border-radius: 4px; cursor: pointer; box-shadow: 0 2px 5px rgba(0,0,0,0.3); }
     </style>
 </head>
 <body>
@@ -87,6 +83,7 @@
     let isFollowing = true, isCourseUp = true, totalDist = 0, lastValidLat = 0, lastValidLng = 0, targetHeading = 0, frameCount = 0;
     let lastUpdateTime = 0;
     
+    const DEFAULT_ZOOM = 16;
     const METERS_TO_FEET = 3.28084, MPS_TO_MPH = 2.23694, WINDOW_MI = 0.25;
 
     function updateTime() {
@@ -119,7 +116,11 @@
             const rotationAngle = isCourseUp ? -targetHeading : 0;
             const mapContainer = map.getContainer().querySelector('.leaflet-proxy').parentElement;
             
-            if (isFollowing) map.setView([lastValidLat, lastValidLng], map.getZoom(), { animate: false });
+            // Pan only, do not force zoom update
+            if (isFollowing) {
+                map.panTo([lastValidLat, lastValidLng], { animate: false });
+            }
+            
             mapContainer.style.transform = `rotate(${rotationAngle}deg)`;
             document.getElementById('needle').style.transform = `rotate(${-targetHeading}deg)`;
         }
@@ -152,7 +153,7 @@
 
     function init() {
         updateTime(); setInterval(updateTime, 1000);
-        map = L.map('map', { zoomControl: false, preferCanvas: true }).setView([0, 0], 16);
+        map = L.map('map', { zoomControl: false, preferCanvas: true, doubleClickZoom: false }).setView([0, 0], DEFAULT_ZOOM);
         L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png').addTo(map);
         
         userMarker = L.circleMarker([0,0], { stroke: true, color: '#fff', weight: 2, fillOpacity: 1, fillColor: '#3498db', radius: 7, zIndexOffset: 1000 }).addTo(map);
@@ -163,38 +164,13 @@
             type: 'line',
             data: { 
                 datasets: [
-                    { 
-                        id: 'route', 
-                        data: [], 
-                        fill: 'origin',
-                        stepped: 'before', 
-                        pointRadius: 0,
-                        borderWidth: 2,
-                        segment: {
-                            borderColor: ctx => getSegmentColor(ctx),
-                            backgroundColor: ctx => getSegmentColor(ctx) + '88'
-                        }
+                    { id: 'route', data: [], fill: 'origin', stepped: 'before', pointRadius: 0, borderWidth: 2,
+                      segment: { borderColor: ctx => getSegmentColor(ctx), backgroundColor: ctx => getSegmentColor(ctx) + '88' }
                     }, 
-                    { 
-                        id: 'user-pos', 
-                        data: [], 
-                        pointRadius: 7, 
-                        pointBackgroundColor: '#f39c12', 
-                        pointBorderColor: '#fff', 
-                        pointBorderWidth: 2, 
-                        showLine: false 
-                    }
+                    { id: 'user-pos', data: [], pointRadius: 7, pointBackgroundColor: '#f39c12', pointBorderColor: '#fff', pointBorderWidth: 2, showLine: false }
                 ]
             },
-            options: { 
-                responsive: true, maintainAspectRatio: false, 
-                plugins: { legend: false }, 
-                animation: false, 
-                scales: { 
-                    x: { type: 'linear' }, 
-                    y: { grace: '10%' }
-                }
-            }
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: false }, animation: false, scales: { x: { type: 'linear' }, y: { grace: '10%' }}}
         });
 
         setupListeners();
@@ -205,8 +181,7 @@
     }
 
     function getSegmentColor(ctx) {
-        const p1 = ctx.p0.raw;
-        const p2 = ctx.p1.raw;
+        const p1 = ctx.p0.raw; const p2 = ctx.p1.raw;
         if (!p1 || !p2) return '#27ae60';
         const grade = ((p2.y - p1.y) / ((p2.x - p1.x) * 5280)) * 100;
         return grade >= 6 ? '#e74c3c' : (grade >= 3 ? '#f1c40f' : '#27ae60');
@@ -216,17 +191,12 @@
         routeData = []; totalDist = 0;
         const processed = sourceCoords.map(c => [c[0], c[1], (c[2] || 0) * METERS_TO_FEET]);
         routeGeoJson = { type: "Feature", geometry: { type: "LineString", coordinates: processed } };
-        
-        let d = 0;
-        routeData.push({x: 0, y: processed[0][2]});
+        let d = 0; routeData.push({x: 0, y: processed[0][2]});
         for(let i=1; i < processed.length; i++) {
             d += turf.distance(turf.point(processed[i-1]), turf.point(processed[i]), {units:'miles'});
             routeData.push({x: d, y: processed[i][2]});
         }
-        totalDist = d;
-        chart.data.datasets[0].data = routeData;
-        chart.update();
-
+        totalDist = d; chart.data.datasets[0].data = routeData; chart.update();
         if (kmlRouteLine) map.removeLayer(kmlRouteLine);
         kmlRouteLine = L.polyline(processed.map(c => [c[1], c[0]]), { color: '#000', weight: 4, opacity: 0.8, dashArray: '8, 12' }).addTo(map);
     }
@@ -236,14 +206,10 @@
         const snapped = turf.nearestPointOnLine(routeGeoJson, turf.point([lng, lat]), {units: 'miles'});
         const curDist = snapped.properties.location;
         snappedMarker.setLatLng([snapped.geometry.coordinates[1], snapped.geometry.coordinates[0]]);
-        
-        const e1 = getElevAtDist(curDist);
-        const e2 = getElevAtDist(curDist + 0.01);
+        const e1 = getElevAtDist(curDist), e2 = getElevAtDist(curDist + 0.01);
         const grade = ((e2 - e1) / (0.01 * 5280)) * 100;
-        
         document.getElementById('grade-val').innerText = isFinite(grade) ? grade.toFixed(1) : "0.0";
         document.getElementById('remain-val').innerText = Math.max(0, totalDist - curDist).toFixed(1);
-        
         chart.options.scales.x.min = curDist - (WINDOW_MI * 0.25);
         chart.options.scales.x.max = curDist + (WINDOW_MI * 0.75);
         chart.data.datasets[1].data = [{ x: curDist, y: e1 }];
@@ -283,10 +249,21 @@
         };
         document.getElementById('rev-btn').onclick = () => { if(masterCoords.length) { masterCoords.reverse(); processRoutePoints(masterCoords); } };
         document.getElementById('reset-btn').onclick = () => { localStorage.clear(); location.reload(); };
+        
+        // Recenter without changing current zoom
         document.getElementById('recenter-btn').onclick = function() {
-            isFollowing = true; this.style.display = 'none';
-            if (lastValidLat !== 0) map.setView([lastValidLat, lastValidLng], map.getZoom(), { animate: true });
+            isFollowing = true; 
+            this.style.display = 'none';
+            if (lastValidLat !== 0) {
+                map.panTo([lastValidLat, lastValidLng], { animate: true });
+            }
         };
+
+        // Double Click Reset Zoom
+        map.on('dblclick', () => {
+            map.setZoom(DEFAULT_ZOOM);
+        });
+
         document.getElementById('compass-ui').onclick = function() {
             isCourseUp = !isCourseUp;
             this.style.borderColor = isCourseUp ? '#fff' : '#444';
@@ -295,7 +272,15 @@
                 mapContainer.style.transform = `rotate(0deg)`;
             }
         };
-        map.on('movestart', (e) => { if (!e.hard) { isFollowing = false; document.getElementById('recenter-btn').style.display = 'block'; } });
+
+        // Detect manual pan/zoom
+        map.on('dragstart zoomstart', () => {
+            if (isFollowing) {
+                isFollowing = false;
+                document.getElementById('recenter-btn').style.display = 'block';
+            }
+        });
+
         document.getElementById('fs-btn').onclick = () => {
             if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
             else document.exitFullscreen();
