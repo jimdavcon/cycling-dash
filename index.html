@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro - Logic Fix</title>
+    <title>CycleDash Pro - Continuous Logic</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -37,7 +37,7 @@
         .action-btn { font-size: 9px; cursor: pointer; text-align: center; width: 80px; padding: 8px 0; background: #fff; border: 1px solid #999; border-radius: 4px; font-weight: bold; color: #333; }
         #status { position: absolute; bottom: 8px; left: 8px; z-index: 2000; font-size: 10px; color: #2ecc71; font-weight: bold; }
         
-        #recenter-btn { position: absolute; top: 10px; right: 10px; z-index: 2000; background: #3498db; color: white; border: none; display: none; padding: 8px 12px; font-size: 10px; font-weight: bold; border-radius: 4px; cursor: pointer; }
+        #recenter-btn { position: absolute; top: 10px; right: 10px; z-index: 2000; background: #3498db; color: white; border: none; display: none; padding: 8px 12px; font-size: 10px; font-weight: bold; border-radius: 4px; cursor: pointer; box-shadow: 0 2px 5px rgba(0,0,0,0.3); }
     </style>
 </head>
 <body>
@@ -76,7 +76,7 @@
 </div>
 
 <script>
-    let map, chart, userMarker, snappedMarker, startMarker, endMarker;
+    let map, chart, userMarker, snappedMarker;
     let masterCoords = [], routeGeoJson = null, kmlRouteLine = null, routeData = [];
     let isFollowing = true, totalDist = 0, lastValidLat = 0, lastValidLng = 0, targetHeading = 0, frameCount = 0;
     
@@ -94,32 +94,33 @@
 
     function renderLoop() {
         frameCount++;
-        if (lastValidLat !== 0) {
-            // 1. ALWAYS update the marker position, even if map is panned
-            userMarker.setLatLng([lastValidLat, lastValidLng]);
+        
+        // HEARTBEAT (Shadow) - Always happens regardless of panning
+        if (frameCount % 30 === 0) {
+            document.getElementById('status').classList.toggle('active-shadow');
+        }
 
-            // 2. ONLY follow/rotate map if following mode is active
+        if (lastValidLat !== 0) {
+            // Update marker position ALWAYS
+            userMarker.setLatLng([lastValidLat, lastValidLng]);
+            
+            // Only lock map focus if following
             if (isFollowing) {
                 map.setView([lastValidLat, lastValidLng], map.getZoom(), { animate: false });
                 const pane = map.getPane('mapPane');
                 pane.style.transform = `rotate(${-targetHeading}deg)`;
             }
-
-            // Always rotate the needle based on heading
-            document.getElementById('needle').style.transform = `rotate(${-targetHeading}deg)`;
             
-            // RENDER HEARTBEAT (Shadow)
-            if (frameCount % 30 === 0) {
-                document.getElementById('status').classList.toggle('active-shadow');
-            }
+            document.getElementById('needle').style.transform = `rotate(${-targetHeading}deg)`;
         }
+        
         requestAnimationFrame(renderLoop);
     }
 
     function handleGPSUpdate(pos) {
         const { latitude, longitude, speed, altitude, heading, accuracy } = pos.coords;
 
-        // DATA HEARTBEAT (TIME color toggle)
+        // DATA HEARTBEAT (TIME label toggle)
         document.getElementById('time-label').classList.toggle('pulse-green');
 
         if (accuracy > MAX_ACCURACY_METERS && lastValidLat !== 0) {
@@ -148,8 +149,6 @@
 
         userMarker = L.circleMarker([0,0], { stroke: false, fillOpacity: 1, fillColor: '#3498db', radius: 7, zIndexOffset: 1000 }).addTo(map);
         snappedMarker = L.circleMarker([0,0], { stroke: false, fillOpacity: 1, fillColor: '#f39c12', radius: 6 }).addTo(map);
-        startMarker = L.circleMarker([0,0], { stroke: false, fillOpacity: 1, fillColor: '#2ecc71', radius: 8 }).addTo(map);
-        endMarker = L.circleMarker([0,0], { stroke: false, fillOpacity: 1, fillColor: '#e74c3c', radius: 8 }).addTo(map);
 
         const ctx = document.getElementById('elevationChart').getContext('2d');
         chart = new Chart(ctx, {
@@ -171,7 +170,6 @@
         }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
     }
 
-    // Logic for Route Processing
     function processRoutePoints(sourceCoords) {
         routeData = []; totalDist = 0;
         const processed = sourceCoords.map(c => [c[0], c[1], (c[2] || 0) * METERS_TO_FEET]);
@@ -185,8 +183,6 @@
         chart.data.datasets[0].data = routeData; chart.update();
         if (kmlRouteLine) map.removeLayer(kmlRouteLine);
         kmlRouteLine = L.polyline(processed.map(c => [c[1], c[0]]), { color: '#000', weight: 3, opacity: 0.8, dashArray: '8, 12' }).addTo(map);
-        startMarker.setLatLng([processed[0][1], processed[0][0]]);
-        endMarker.setLatLng([processed[processed.length-1][1], processed[processed.length-1][0]]);
         if (lastValidLat !== 0) updateRouteContext(lastValidLat, lastValidLng);
     }
 
@@ -243,15 +239,17 @@
         document.getElementById('recenter-btn').onclick = function() {
             isFollowing = true;
             this.style.display = 'none';
-            // Snap map back to user immediately
             if (lastValidLat !== 0) {
                 map.setView([lastValidLat, lastValidLng], map.getZoom(), { animate: true });
             }
         };
 
-        map.on('dragstart', () => { 
-            isFollowing = false; 
-            document.getElementById('recenter-btn').style.display = 'block'; 
+        // Ensure button appears on ANY map movement
+        map.on('movestart', () => { 
+            if (isFollowing) {
+                isFollowing = false; 
+                document.getElementById('recenter-btn').style.display = 'block'; 
+            }
         });
         
         document.getElementById('fs-btn').onclick = () => {
