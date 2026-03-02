@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro - Heartbeat Fix</title>
+    <title>CycleDash Pro - Reliability Build</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -22,25 +22,20 @@
         .label { font-size: 9px; font-weight: bold; color: #888; text-transform: uppercase; }
         .val-text { font-size: 17px; font-weight: bold; font-family: monospace; color: #fff; }
 
-        /* HEARTBEAT CLASSES */
         .pulse-green { color: #2ecc71 !important; } 
-        .active-shadow { text-shadow: 0 0 8px rgba(46, 204, 113, 0.9); color: #fff !important; }
+        .active-shadow { text-shadow: 0 0 10px rgba(46, 204, 113, 1); color: #fff !important; }
 
         #map { flex: 1; background: #111; position: relative; width: 100%; z-index: 1; overflow: hidden; }
-        .leaflet-map-pane { transition: transform 0.1s linear !important; will-change: transform; }
-
         #compass-ui { position: absolute; top: 10px; left: 10px; z-index: 2000; width: 34px; height: 34px; background: rgba(0,0,0,0.6); border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid #555; pointer-events: none; }
-        #needle { width: 2px; height: 24px; background: #e74c3c; position: relative; transition: transform 0.1s linear; }
+        #needle { width: 2px; height: 24px; background: #e74c3c; position: relative; }
         #needle::after { content: ''; position: absolute; bottom: 0; left: 0; width: 2px; height: 50%; background: #fff; }
 
-        #bottom-tray { display: flex; height: 140px; background: #fff; border-top: 2px solid #333; padding-bottom: var(--sab); flex-shrink: 0; width: 100%; z-index: 1000; box-sizing: border-box; }
-        #chart-section { flex: 1; min-width: 0; position: relative; padding: 5px; height: 100%; box-sizing: border-box; }
+        #bottom-tray { display: flex; height: 140px; background: #fff; border-top: 2px solid #333; padding-bottom: var(--sab); flex-shrink: 0; width: 100%; z-index: 1000; }
+        #chart-section { flex: 1; min-width: 0; position: relative; padding: 5px; }
         #action-section { flex: 0 0 90px; display: flex; flex-direction: column; justify-content: space-evenly; align-items: center; background: #ececec; border-left: 1px solid #ccc; }
         
         .action-btn { font-size: 9px; cursor: pointer; text-align: center; width: 80px; padding: 8px 0; background: #fff; border: 1px solid #999; border-radius: 4px; font-weight: bold; color: #333; }
-        #recenter-btn { background: #3498db; color: white; border: none; display: none; position: absolute; top: 10px; right: 10px; z-index: 2000; padding: 8px 15px; }
         #status { position: absolute; bottom: 8px; left: 8px; z-index: 2000; font-size: 10px; color: #2ecc71; font-weight: bold; }
-        canvas { width: 100% !important; height: 100% !important; }
     </style>
 </head>
 <body>
@@ -63,8 +58,8 @@
 
     <div id="map">
         <div id="compass-ui"><div id="needle"></div></div>
-        <div id="status">GPS: WAITING</div>
-        <button class="action-btn" id="recenter-btn">RECENTER</button>
+        <div id="status">GPS: SEARCHING</div>
+        <button class="action-btn" id="recenter-btn" style="position:absolute; top:10px; right:10px; z-index:2000; display:none;">RECENTER</button>
     </div>
 
     <div id="bottom-tray">
@@ -81,10 +76,8 @@
 <script>
     let map, chart, userMarker, snappedMarker, startMarker, endMarker;
     let masterCoords = [], routeGeoJson = null, kmlRouteLine = null, routeData = [];
-    let isFollowing = true, totalDist = 0;
+    let isFollowing = true, totalDist = 0, lastValidLat = 0, lastValidLng = 0, targetHeading = 0, frameCount = 0;
     
-    let lastValidLat = 0, lastValidLng = 0, targetHeading = 0;
-    let frameCount = 0;
     const MAX_ACCURACY_METERS = 45; 
     const METERS_TO_FEET = 3.28084, MPS_TO_MPH = 2.23694, WINDOW_MI = 0.25;
 
@@ -95,6 +88,47 @@
         const x = h >= 12 ? 'p' : 'a';
         h = h % 12 || 12;
         document.getElementById('time-val').innerText = `${h}:${m}${x}`;
+    }
+
+    function renderLoop() {
+        frameCount++;
+        if (isFollowing && lastValidLat !== 0) {
+            userMarker.setLatLng([lastValidLat, lastValidLng]);
+            map.setView([lastValidLat, lastValidLng], map.getZoom(), { animate: false });
+            
+            const pane = map.getPane('mapPane');
+            pane.style.transform = `rotate(${-targetHeading}deg)`;
+            document.getElementById('needle').style.transform = `rotate(${-targetHeading}deg)`;
+            
+            // RENDER HEARTBEAT: Pulse shadow twice a second
+            if (frameCount % 30 === 0) {
+                document.getElementById('status').classList.toggle('active-shadow');
+            }
+        }
+        requestAnimationFrame(renderLoop);
+    }
+
+    function handleGPSUpdate(pos) {
+        const { latitude, longitude, speed, altitude, heading, accuracy } = pos.coords;
+
+        // DATA HEARTBEAT: Toggle TIME label on every valid signal
+        document.getElementById('time-label').classList.toggle('pulse-green');
+
+        if (accuracy > MAX_ACCURACY_METERS && lastValidLat !== 0) {
+            document.getElementById('status').innerText = `GPS: JITTER (${Math.round(accuracy)}m)`;
+            return; 
+        }
+
+        lastValidLat = latitude;
+        lastValidLng = longitude;
+        if (heading !== null) targetHeading = heading;
+
+        document.getElementById('status').innerText = "GPS: LIVE";
+        document.getElementById('speed-val').innerText = speed ? (speed * MPS_TO_MPH).toFixed(1) : "0.0";
+        document.getElementById('elev-val').innerText = altitude ? Math.round(altitude * METERS_TO_FEET) : "---";
+        document.getElementById('heading-val').innerText = Math.round(targetHeading) + "°";
+        
+        updateRouteContext(latitude, longitude);
     }
 
     function init() {
@@ -112,81 +146,35 @@
         const ctx = document.getElementById('elevationChart').getContext('2d');
         chart = new Chart(ctx, {
             type: 'line',
-            data: { datasets: [
-                { id: 'route', data: [], borderWidth: 4, pointRadius: 0, tension: 0.1, fill: false,
-                  segment: { borderColor: ctx => {
-                    const p1 = ctx.p0.raw, p2 = ctx.p1.raw;
-                    if (!p1 || !p2) return '#27ae60';
-                    const grade = ((p2.y - p1.y) / ((p2.x - p1.x) * 5280)) * 100;
-                    return grade >= 6 ? '#e74c3c' : (grade >= 3 ? '#f1c40f' : '#27ae60');
-                }}}, 
-                { id: 'user-pos', data: [], pointRadius: 7, pointBackgroundColor: '#f39c12', pointBorderColor: '#fff', pointBorderWidth: 2, clip: false, showLine: false }
-            ]},
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: false }, animation: false, scales: { x: { type: 'linear' }, y: { grace: '20%' } } }
+            data: { datasets: [{ id:'route', data:[], borderWidth:4, pointRadius:0, fill:false, segment:{borderColor:c=>{
+                const p1=c.p0.raw, p2=c.p1.raw; if(!p1||!p2) return '#27ae60';
+                const g=((p2.y-p1.y)/((p2.x-p1.x)*5280))*100; return g>=6?'#e74c3c':(g>=3?'#f1c40f':'#27ae60');
+            }}}, { id:'user-pos', data:[], pointRadius:7, pointBackgroundColor:'#f39c12', pointBorderColor:'#fff', pointBorderWidth:2, showLine:false }]},
+            options: { responsive:true, maintainAspectRatio:false, plugins:{legend:false}, animation:false, scales:{x:{type:'linear'},y:{grace:'20%'}}}
         });
-
-        function renderLoop() {
-            frameCount++;
-            if (isFollowing && lastValidLat !== 0) {
-                userMarker.setLatLng([lastValidLat, lastValidLng]);
-                map.setView([lastValidLat, lastValidLng], map.getZoom(), { animate: false });
-                
-                const pane = map.getPane('mapPane');
-                pane.style.transform = `rotate(${-targetHeading}deg)`;
-                document.getElementById('needle').style.transform = `rotate(${-targetHeading}deg)`;
-                
-                // RENDER HEARTBEAT: Toggles shadow every 30 frames (~0.5s) to indicate active redraw
-                if (frameCount % 30 === 0) {
-                    document.getElementById('status').classList.toggle('active-shadow');
-                }
-            }
-            requestAnimationFrame(renderLoop);
-        }
-        requestAnimationFrame(renderLoop);
 
         setupListeners();
         const saved = localStorage.getItem('cycling_route_foss');
         if (saved) loadKml(saved);
-        startGPS();
-    }
-
-    function handleGPSUpdate(pos) {
-        const { latitude, longitude, speed, altitude, heading, accuracy } = pos.coords;
-
-        if (accuracy > MAX_ACCURACY_METERS) {
-            document.getElementById('status').innerText = "GPS: LOW ACCURACY (" + Math.round(accuracy) + "m)";
-            return; 
-        }
-
-        lastValidLat = latitude;
-        lastValidLng = longitude;
-        if (heading !== null) targetHeading = heading;
-
-        // DATA HEARTBEAT: Toggles TIME label color on every valid GPS point
-        document.getElementById('time-label').classList.toggle('pulse-green');
-        document.getElementById('status').innerText = "GPS: LIVE";
-
-        document.getElementById('speed-val').innerText = speed ? (speed * MPS_TO_MPH).toFixed(1) : "0.0";
-        document.getElementById('elev-val').innerText = altitude ? Math.round(altitude * METERS_TO_FEET) : "---";
-        document.getElementById('heading-val').innerText = Math.round(targetHeading) + "°";
         
-        updateRouteContext(latitude, longitude);
+        // Start Loops
+        requestAnimationFrame(renderLoop);
+        navigator.geolocation.watchPosition(handleGPSUpdate, (e) => {
+            document.getElementById('status').innerText = "GPS: ERROR " + e.code;
+        }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
     }
 
     function processRoutePoints(sourceCoords) {
-        routeData = [];
-        totalDist = 0;
+        routeData = []; totalDist = 0;
         const processed = sourceCoords.map(c => [c[0], c[1], (c[2] || 0) * METERS_TO_FEET]);
         routeGeoJson = { type: "Feature", geometry: { type: "LineString", coordinates: processed } };
-        let d = 0; 
-        routeData.push({x: 0, y: processed[0][2]});
+        let d = 0; routeData.push({x: 0, y: processed[0][2]});
         for(let i=1; i < processed.length; i++) {
             d += turf.distance(turf.point(processed[i-1]), turf.point(processed[i]), {units:'miles'});
             routeData.push({x: d, y: processed[i][2]});
         }
         totalDist = d;
-        chart.data.datasets[0].data = routeData;
-        chart.update();
+        chart.data.datasets[0].data = routeData; chart.update();
         if (kmlRouteLine) map.removeLayer(kmlRouteLine);
         kmlRouteLine = L.polyline(processed.map(c => [c[1], c[0]]), { color: '#000', weight: 3, opacity: 0.8, dashArray: '8, 12' }).addTo(map);
         startMarker.setLatLng([processed[0][1], processed[0][0]]);
@@ -196,12 +184,11 @@
 
     function updateRouteContext(lat, lng) {
         if (!routeGeoJson) return;
-        const userPt = turf.point([lng, lat]);
-        const snapped = turf.nearestPointOnLine(routeGeoJson, userPt, {units: 'miles'});
+        const snapped = turf.nearestPointOnLine(routeGeoJson, turf.point([lng, lat]), {units: 'miles'});
         const curDist = snapped.properties.location;
         snappedMarker.setLatLng([snapped.geometry.coordinates[1], snapped.geometry.coordinates[0]]);
-        const step = 0.01, e1 = getElevAtDist(curDist), e2 = getElevAtDist(curDist + step);
-        const grade = ((e2 - e1) / (step * 5280)) * 100;
+        const e1 = getElevAtDist(curDist), e2 = getElevAtDist(curDist + 0.01);
+        const grade = ((e2 - e1) / (0.01 * 5280)) * 100;
         document.getElementById('grade-val').innerText = isFinite(grade) ? grade.toFixed(1) : "0.0";
         document.getElementById('remain-val').innerText = Math.max(0, totalDist - curDist).toFixed(1);
         chart.options.scales.x.min = curDist - (WINDOW_MI * 0.25);
@@ -210,37 +197,29 @@
         chart.update('none'); 
     }
 
-    function getElevAtDist(targetDist) {
+    function getElevAtDist(t) {
         if (routeData.length === 0) return 0;
-        const target = Math.max(0, Math.min(targetDist, totalDist));
+        const target = Math.max(0, Math.min(t, totalDist));
         for (let i = 0; i < routeData.length - 1; i++) {
             if (target >= routeData[i].x && target <= routeData[i+1].x) {
-                const ratio = (target - routeData[i].x) / (routeData[i+1].x - routeData[i].x);
-                return routeData[i].y + ratio * (routeData[i+1].y - routeData[i].y);
+                const r = (target - routeData[i].x) / (routeData[i+1].x - routeData[i].x);
+                return routeData[i].y + r * (routeData[i+1].y - routeData[i].y);
             }
         }
         return routeData[routeData.length - 1].y;
     }
 
-    function loadKml(xmlString) {
+    function loadKml(xml) {
         try {
-            const dom = new DOMParser().parseFromString(xmlString, "text/xml");
+            const dom = new DOMParser().parseFromString(xml, "text/xml");
             const geojson = toGeoJSON.kml(dom);
             let coords = [];
             geojson.features.forEach(f => {
                 if (f.geometry.type === 'LineString') coords = coords.concat(f.geometry.coordinates);
                 else if (f.geometry.type === 'MultiLineString') f.geometry.coordinates.forEach(line => { coords = coords.concat(line); });
             });
-            if (coords.length === 0) return;
-            masterCoords = coords;
-            localStorage.setItem('cycling_route_foss', xmlString);
-            processRoutePoints(coords);
+            if (coords.length > 0) { masterCoords = coords; localStorage.setItem('cycling_route_foss', xml); processRoutePoints(coords); }
         } catch(e) { console.error(e); }
-    }
-
-    function startGPS() {
-        const options = { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 };
-        navigator.geolocation.watchPosition(handleGPSUpdate, () => {}, options);
     }
 
     function setupListeners() {
@@ -251,17 +230,8 @@
         };
         document.getElementById('rev-btn').onclick = () => { if(masterCoords.length) { masterCoords.reverse(); processRoutePoints(masterCoords); } };
         document.getElementById('reset-btn').onclick = () => { localStorage.clear(); location.reload(); };
-        document.getElementById('recenter-btn').onclick = function() {
-            isFollowing = true;
-            this.style.opacity = '0';
-            setTimeout(() => this.style.display = 'none', 500);
-        };
-        map.on('dragstart', () => { 
-            isFollowing = false; 
-            const btn = document.getElementById('recenter-btn');
-            btn.style.display = 'block';
-            setTimeout(() => btn.style.opacity = '1', 10);
-        });
+        document.getElementById('recenter-btn').onclick = function() { isFollowing = true; this.style.display = 'none'; };
+        map.on('dragstart', () => { isFollowing = false; document.getElementById('recenter-btn').style.display = 'block'; });
         document.getElementById('fs-btn').onclick = () => {
             if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
             else document.exitFullscreen();
