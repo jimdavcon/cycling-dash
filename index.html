@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro - Continuous Logic</title>
+    <title>CycleDash Pro - Precision Build</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -22,7 +22,9 @@
         .label { font-size: 9px; font-weight: bold; color: #888; text-transform: uppercase; }
         .val-text { font-size: 17px; font-weight: bold; font-family: monospace; color: #fff; }
 
+        /* TIME TOGGLE COLOR */
         .pulse-green { color: #2ecc71 !important; } 
+        /* RENDER HEARTBEAT SHADOW */
         .active-shadow { text-shadow: 0 0 10px rgba(46, 204, 113, 1); color: #fff !important; }
 
         #map { flex: 1; background: #111; position: relative; width: 100%; z-index: 1; overflow: hidden; }
@@ -35,9 +37,9 @@
         #action-section { flex: 0 0 90px; display: flex; flex-direction: column; justify-content: space-evenly; align-items: center; background: #ececec; border-left: 1px solid #ccc; }
         
         .action-btn { font-size: 9px; cursor: pointer; text-align: center; width: 80px; padding: 8px 0; background: #fff; border: 1px solid #999; border-radius: 4px; font-weight: bold; color: #333; }
-        #status { position: absolute; bottom: 8px; left: 8px; z-index: 2000; font-size: 10px; color: #2ecc71; font-weight: bold; }
+        #status { position: absolute; bottom: 8px; left: 8px; z-index: 2000; font-size: 10px; color: #2ecc71; font-weight: bold; font-family: monospace; }
         
-        #recenter-btn { position: absolute; top: 10px; right: 10px; z-index: 2000; background: #3498db; color: white; border: none; display: none; padding: 8px 12px; font-size: 10px; font-weight: bold; border-radius: 4px; cursor: pointer; box-shadow: 0 2px 5px rgba(0,0,0,0.3); }
+        #recenter-btn { position: absolute; top: 10px; right: 10px; z-index: 2000; background: #3498db; color: white; border: none; display: none; padding: 8px 12px; font-size: 10px; font-weight: bold; border-radius: 4px; cursor: pointer; }
     </style>
 </head>
 <body>
@@ -60,7 +62,7 @@
 
     <div id="map">
         <div id="compass-ui"><div id="needle"></div></div>
-        <div id="status">GPS: SEARCHING</div>
+        <div id="status">GPS: ACQUIRING...</div>
         <button id="recenter-btn">RECENTER</button>
     </div>
 
@@ -95,22 +97,19 @@
     function renderLoop() {
         frameCount++;
         
-        // HEARTBEAT (Shadow) - Always happens regardless of panning
+        // 1. RENDER HEARTBEAT: Pulse shadow on status twice per second
         if (frameCount % 30 === 0) {
             document.getElementById('status').classList.toggle('active-shadow');
         }
 
         if (lastValidLat !== 0) {
-            // Update marker position ALWAYS
             userMarker.setLatLng([lastValidLat, lastValidLng]);
             
-            // Only lock map focus if following
             if (isFollowing) {
                 map.setView([lastValidLat, lastValidLng], map.getZoom(), { animate: false });
                 const pane = map.getPane('mapPane');
                 pane.style.transform = `rotate(${-targetHeading}deg)`;
             }
-            
             document.getElementById('needle').style.transform = `rotate(${-targetHeading}deg)`;
         }
         
@@ -120,19 +119,24 @@
     function handleGPSUpdate(pos) {
         const { latitude, longitude, speed, altitude, heading, accuracy } = pos.coords;
 
-        // DATA HEARTBEAT (TIME label toggle)
-        document.getElementById('time-label').classList.toggle('pulse-green');
+        // 2. DATA HEARTBEAT: Explicitly toggle TIME label on every coordinate arrival
+        const timeLabel = document.getElementById('time-label');
+        timeLabel.classList.toggle('pulse-green');
+
+        const accFt = Math.round(accuracy * METERS_TO_FEET);
 
         if (accuracy > MAX_ACCURACY_METERS && lastValidLat !== 0) {
-            document.getElementById('status').innerText = `GPS: JITTER (${Math.round(accuracy)}m)`;
+            document.getElementById('status').innerText = `GPS: ±${accFt}FT (JITTER)`;
             return; 
         }
+
+        // 3. DESCRIPTIVE STATUS: Shows accuracy in feet
+        document.getElementById('status').innerText = `GPS: ±${accFt}FT`;
 
         lastValidLat = latitude;
         lastValidLng = longitude;
         if (heading !== null) targetHeading = heading;
 
-        document.getElementById('status').innerText = "GPS: LIVE";
         document.getElementById('speed-val').innerText = speed ? (speed * MPS_TO_MPH).toFixed(1) : "0.0";
         document.getElementById('elev-val').innerText = altitude ? Math.round(altitude * METERS_TO_FEET) : "---";
         document.getElementById('heading-val').innerText = Math.round(targetHeading) + "°";
@@ -235,7 +239,6 @@
         document.getElementById('rev-btn').onclick = () => { if(masterCoords.length) { masterCoords.reverse(); processRoutePoints(masterCoords); } };
         document.getElementById('reset-btn').onclick = () => { localStorage.clear(); location.reload(); };
         
-        // RECENTER FIX
         document.getElementById('recenter-btn').onclick = function() {
             isFollowing = true;
             this.style.display = 'none';
@@ -244,7 +247,7 @@
             }
         };
 
-        // Ensure button appears on ANY map movement
+        // BUTTON APPEARS ON ANY MAP MOVEMENT
         map.on('movestart', () => { 
             if (isFollowing) {
                 isFollowing = false; 
