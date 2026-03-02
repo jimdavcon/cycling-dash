@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro - Full Build</title>
+    <title>CycleDash Pro - Restored HUD</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -16,13 +16,15 @@
         body, html { margin: 0; padding: 0; height: 100svh; width: 100%; overflow: hidden; background: #1a1a1a; font-family: -apple-system, system-ui, sans-serif; }
         #container { display: flex; flex-direction: column; height: 100svh; width: 100vw; }
         
+        /* RESTORED HUD PROPERTIES */
         #hud-header { background: #222; color: white; padding-top: var(--sat); display: grid; grid-template-columns: 1fr 1.1fr 1fr; border-bottom: 1px solid #444; flex-shrink: 0; z-index: 1000; height: 60px; }
         .hud-column { display: flex; flex-direction: column; padding: 0px 10px; justify-content: center; }
         .data-row { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #333; padding: 0px 0; line-height: 1.2; }
         .label { font-size: 9px; font-weight: bold; color: #888; text-transform: uppercase; transition: color 0.05s linear; }
         .val-text { font-size: 17px; font-weight: bold; font-family: monospace; color: #fff; }
 
-        .pulse-green { color: #2ecc71 !important; }
+        /* HEARTBEAT EFFECTS */
+        .pulse-green { color: #2ecc71 !important; } 
         .active-shadow { text-shadow: 1px 1px 2px #000, 0 0 8px rgba(46, 204, 113, 0.7); }
 
         #map { flex: 1; background: #111; position: relative; width: 100%; z-index: 1; overflow: hidden; }
@@ -37,7 +39,7 @@
         #action-section { flex: 0 0 90px; display: flex; flex-direction: column; justify-content: space-evenly; align-items: center; background: #ececec; border-left: 1px solid #ccc; }
         
         .action-btn { font-size: 9px; cursor: pointer; text-align: center; width: 80px; padding: 8px 0; background: #fff; border: 1px solid #999; border-radius: 4px; font-weight: bold; color: #333; }
-        #recenter-btn { background: #3498db; color: white; border: none; display: none; position: absolute; top: 10px; right: 10px; z-index: 2000; width: auto; padding: 8px 15px; opacity: 0; transition: opacity 0.5s ease; }
+        #recenter-btn { background: #3498db; color: white; border: none; display: none; position: absolute; top: 10px; right: 10px; z-index: 2000; padding: 8px 15px; opacity: 0; transition: opacity 0.5s ease; }
         #status { position: absolute; bottom: 8px; left: 8px; z-index: 2000; font-size: 10px; color: #2ecc71; font-weight: bold; transition: text-shadow 0.05s linear; }
         canvas { width: 100% !important; height: 100% !important; }
     </style>
@@ -82,7 +84,6 @@
     let masterCoords = [], routeGeoJson = null, kmlRouteLine = null, routeData = [];
     let isFollowing = true, totalDist = 0;
     
-    // Performance & Filter Vars
     let lastValidLat = 0, lastValidLng = 0, targetHeading = 0;
     const MAX_ACCURACY_METERS = 45; 
     const METERS_TO_FEET = 3.28084, MPS_TO_MPH = 2.23694, WINDOW_MI = 0.25;
@@ -124,7 +125,7 @@
                 pane.style.transform = `rotate(${-targetHeading}deg)`;
                 document.getElementById('needle').style.transform = `rotate(${-targetHeading}deg)`;
                 
-                // RENDER HEARTBEAT
+                // RENDER HEARTBEAT (GPS STATUS SHADOW)
                 document.getElementById('status').classList.toggle('active-shadow');
             }
             requestAnimationFrame(renderLoop);
@@ -149,7 +150,7 @@
         lastValidLng = longitude;
         if (heading !== null) targetHeading = heading;
 
-        // DATA HEARTBEAT
+        // DATA HEARTBEAT (TIME LABEL TOGGLE)
         document.getElementById('time-label').classList.toggle('pulse-green');
         document.getElementById('status').innerText = "GPS: LIVE";
 
@@ -238,11 +239,6 @@
     function updateTime() {
         const now = new Date();
         document.getElementById('time-val').innerText = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase();
-    }
-
-    function startGPS() {
-        const options = { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 };
-        navigator.geolocation.watchPosition(handleGPSUpdate, () => {}, options);
     }
 
     function setupListeners() {
