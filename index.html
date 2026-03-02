@@ -3,14 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro - Clipping Fix</title>
+    <title>CycleDash Pro - Full Build</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/togeojson/0.16.0/togeojson.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
     <style>
         :root { --sat: env(safe-area-inset-top, 0px); --sab: env(safe-area-inset-bottom, 0px); }
@@ -27,10 +26,10 @@
         .active-shadow { text-shadow: 1px 1px 2px #000, 0 0 8px rgba(46, 204, 113, 0.7); }
 
         #map { flex: 1; background: #111; position: relative; width: 100%; z-index: 1; overflow: hidden; }
-        .leaflet-map-pane { transition: none !important; } 
+        .leaflet-map-pane { transition: transform 0.1s linear !important; will-change: transform; }
 
         #compass-ui { position: absolute; top: 10px; left: 10px; z-index: 2000; width: 34px; height: 34px; background: rgba(0,0,0,0.6); border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid #555; pointer-events: none; }
-        #needle { width: 2px; height: 24px; background: #e74c3c; position: relative; }
+        #needle { width: 2px; height: 24px; background: #e74c3c; position: relative; transition: transform 0.1s linear; }
         #needle::after { content: ''; position: absolute; bottom: 0; left: 0; width: 2px; height: 50%; background: #fff; }
 
         #bottom-tray { display: flex; height: 140px; background: #fff; border-top: 2px solid #333; padding-bottom: var(--sab); flex-shrink: 0; width: 100%; z-index: 1000; box-sizing: border-box; }
@@ -80,105 +79,85 @@
 
 <script>
     let map, chart, userMarker, snappedMarker, startMarker, endMarker;
-    let masterCoords = []; 
-    let routeGeoJson = null; 
-    let kmlRouteLine = null;
-    let isFollowing = true, totalDist = 0, routeData = [];
-    let lastLat = null, lastLng = null, lastHeading = 0;
-    const METERS_TO_FEET = 3.28084, MPS_TO_MPH = 2.23694, WINDOW_MI = 0.25, DEFAULT_ZOOM = 16;
-
-    function updateTime() {
-        const now = new Date();
-        let hours = now.getHours();
-        const minutes = now.getMinutes().toString().padStart(2, '0');
-        const ampm = hours >= 12 ? 'p' : 'a';
-        hours = hours % 12 || 12;
-        document.getElementById('time-val').innerText = `${hours}:${minutes}${ampm}`;
-    }
+    let masterCoords = [], routeGeoJson = null, kmlRouteLine = null, routeData = [];
+    let isFollowing = true, totalDist = 0;
+    
+    // Performance & Filter Vars
+    let lastValidLat = 0, lastValidLng = 0, targetHeading = 0;
+    const MAX_ACCURACY_METERS = 45; 
+    const METERS_TO_FEET = 3.28084, MPS_TO_MPH = 2.23694, WINDOW_MI = 0.25;
 
     function init() {
-        setInterval(updateTime, 1000);
         updateTime();
+        setInterval(updateTime, 1000);
 
-        map = L.map('map', { zoomControl: false, doubleClickZoom: false }).setView([0, 0], DEFAULT_ZOOM);
+        map = L.map('map', { zoomControl: false, preferCanvas: true }).setView([0, 0], 16);
         L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png').addTo(map);
 
+        userMarker = L.circleMarker([0,0], { stroke: false, fillOpacity: 1, fillColor: '#3498db', radius: 7, zIndexOffset: 1000 }).addTo(map);
+        snappedMarker = L.circleMarker([0,0], { stroke: false, fillOpacity: 1, fillColor: '#f39c12', radius: 6 }).addTo(map);
         startMarker = L.circleMarker([0,0], { stroke: false, fillOpacity: 1, fillColor: '#2ecc71', radius: 8 }).addTo(map);
         endMarker = L.circleMarker([0,0], { stroke: false, fillOpacity: 1, fillColor: '#e74c3c', radius: 8 }).addTo(map);
-        snappedMarker = L.circleMarker([0,0], { stroke: false, fillOpacity: 1, fillColor: '#f39c12', radius: 6 }).addTo(map);
-        userMarker = L.circleMarker([0,0], { stroke: false, fillOpacity: 1, fillColor: '#3498db', radius: 7, zIndexOffset: 1000 }).addTo(map);
 
         const ctx = document.getElementById('elevationChart').getContext('2d');
         chart = new Chart(ctx, {
             type: 'line',
             data: { datasets: [
-                { id: 'route', data: [], borderWidth: 4.5, pointRadius: 0, tension: 0.1, fill: false, 
+                { id: 'route', data: [], borderWidth: 4, pointRadius: 0, tension: 0.1, fill: false,
                   segment: { borderColor: ctx => {
                     const p1 = ctx.p0.raw, p2 = ctx.p1.raw;
                     if (!p1 || !p2) return '#27ae60';
                     const grade = ((p2.y - p1.y) / ((p2.x - p1.x) * 5280)) * 100;
                     return grade >= 6 ? '#e74c3c' : (grade >= 3 ? '#f1c40f' : '#27ae60');
                 }}}, 
-                { 
-                    id: 'user-pos', 
-                    data: [], 
-                    pointRadius: 7, 
-                    pointBackgroundColor: '#f39c12', 
-                    pointBorderColor: '#fff', 
-                    pointBorderWidth: 2, 
-                    showLine: false,
-                    clip: false // Prevents the orange marker from disappearing at chart edges
-                }
+                { id: 'user-pos', data: [], pointRadius: 7, pointBackgroundColor: '#f39c12', pointBorderColor: '#fff', pointBorderWidth: 2, clip: false, showLine: false }
             ]},
-            options: { 
-                responsive: true, maintainAspectRatio: false, 
-                plugins: { legend: false }, 
-                animation: false,
-                scales: { 
-                    x: { type: 'linear', ticks: { font: { size: 9 } }, grid: { display: false } }, 
-                    y: { grace: '20%', ticks: { font: { size: 9 } } } 
-                } 
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: false }, animation: false, scales: { x: { type: 'linear' }, y: { grace: '20%' } } }
+        });
+
+        function renderLoop() {
+            if (isFollowing && lastValidLat !== 0) {
+                userMarker.setLatLng([lastValidLat, lastValidLng]);
+                map.setView([lastValidLat, lastValidLng], map.getZoom(), { animate: false });
+                
+                const pane = map.getPane('mapPane');
+                pane.style.transform = `rotate(${-targetHeading}deg)`;
+                document.getElementById('needle').style.transform = `rotate(${-targetHeading}deg)`;
+                
+                // RENDER HEARTBEAT
+                document.getElementById('status').classList.toggle('active-shadow');
             }
-        });
+            requestAnimationFrame(renderLoop);
+        }
+        requestAnimationFrame(renderLoop);
 
-        map.on('dragstart', () => { 
-            isFollowing = false; 
-            const btn = document.getElementById('recenter-btn');
-            btn.style.display = 'block';
-            setTimeout(() => btn.style.opacity = '1', 10);
-        });
-
-        document.getElementById('recenter-btn').onclick = function() {
-            isFollowing = true;
-            this.style.opacity = '0';
-            setTimeout(() => this.style.display = 'none', 500);
-            if(lastLat && lastLng) updateMapDisplay(lastLat, lastLng);
-        };
-
-        document.getElementById('fs-btn').onclick = () => {
-            if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
-            else document.exitFullscreen();
-        };
-
-        document.getElementById('reset-btn').onclick = () => { localStorage.clear(); location.reload(); };
-
-        document.getElementById('rev-btn').onclick = () => {
-            if (masterCoords.length === 0) return;
-            masterCoords.reverse(); 
-            processRoutePoints(masterCoords); 
-        };
-
-        document.getElementById('route-upload').onchange = async (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = (ev) => { loadKml(ev.target.result); };
-            reader.readAsText(file);
-        };
-
+        setupListeners();
         const saved = localStorage.getItem('cycling_route_foss');
         if (saved) loadKml(saved);
         startGPS();
+    }
+
+    function handleGPSUpdate(pos) {
+        const { latitude, longitude, speed, altitude, heading, accuracy } = pos.coords;
+
+        if (accuracy > MAX_ACCURACY_METERS) {
+            document.getElementById('status').innerText = "GPS: LOW ACCURACY (" + Math.round(accuracy) + "m)";
+            return; 
+        }
+
+        lastValidLat = latitude;
+        lastValidLng = longitude;
+        if (heading !== null) targetHeading = heading;
+
+        // DATA HEARTBEAT
+        document.getElementById('time-label').classList.toggle('pulse-green');
+        document.getElementById('status').innerText = "GPS: LIVE";
+
+        document.getElementById('speed-val').innerText = speed ? (speed * MPS_TO_MPH).toFixed(1) : "0.0";
+        document.getElementById('elev-val').innerText = altitude ? Math.round(altitude * METERS_TO_FEET) : "---";
+        document.getElementById('heading-val').innerText = Math.round(targetHeading) + "°";
+        
+        updateRouteContext(latitude, longitude);
     }
 
     function processRoutePoints(sourceCoords) {
@@ -204,67 +183,26 @@
         startMarker.setLatLng([processed[0][1], processed[0][0]]);
         endMarker.setLatLng([processed[processed.length-1][1], processed[processed.length-1][0]]);
 
-        if (lastLat && lastLng) {
-            updateMapDisplay(lastLat, lastLng);
-            updateRouteContext(lastLat, lastLng);
-        }
-    }
-
-    function handleGPSUpdate(pos) {
-        const { latitude: lat, longitude: lng, speed, altitude, heading } = pos.coords;
-        lastLat = lat; lastLng = lng;
-        if (heading !== null) lastHeading = heading;
-        
-        document.getElementById('time-label').classList.toggle('pulse-green');
-        
-        document.getElementById('speed-val').innerText = speed ? (speed * MPS_TO_MPH).toFixed(1) : "0.0";
-        document.getElementById('elev-val').innerText = altitude ? Math.round(altitude * METERS_TO_FEET) : "---";
-        document.getElementById('heading-val').innerText = lastHeading ? Math.round(lastHeading) + "°" : "0°";
-        updateTime();
-
-        updateMapDisplay(lat, lng);
-        updateRouteContext(lat, lng);
-    }
-
-    function updateMapDisplay(lat, lng) {
-        document.getElementById('status').innerText = "GPS: LIVE";
-        document.getElementById('status').classList.toggle('active-shadow');
-
-        userMarker.setLatLng([lat, lng]);
-        if (isFollowing) {
-            map.setView([lat, lng], map.getZoom(), { animate: false });
-            const pane = map.getPane('mapPane');
-            pane.style.transform = `rotate(${-lastHeading}deg)`;
-            document.getElementById('needle').style.transform = `rotate(${-lastHeading}deg)`;
-        }
-    }
-
-    function startGPS() {
-        const options = { enableHighAccuracy: true, timeout: 1000, maximumAge: 0 };
-        navigator.geolocation.watchPosition(handleGPSUpdate, 
-            (err) => { document.getElementById('status').innerText = "GPS: SEARCHING..."; }, 
-            options);
-
-        setInterval(() => {
-            navigator.geolocation.getCurrentPosition(handleGPSUpdate, () => {}, options);
-        }, 1500);
+        if (lastValidLat !== 0) updateRouteContext(lastValidLat, lastValidLng);
     }
 
     function updateRouteContext(lat, lng) {
         if (!routeGeoJson) return;
-
         const userPt = turf.point([lng, lat]);
         const snapped = turf.nearestPointOnLine(routeGeoJson, userPt, {units: 'miles'});
         const curDist = snapped.properties.location;
         snappedMarker.setLatLng([snapped.geometry.coordinates[1], snapped.geometry.coordinates[0]]);
 
-        const step = 0.01, e1 = getElevAtDist(curDist), e2 = getElevAtDist(curDist + step);
+        const step = 0.01;
+        const e1 = getElevAtDist(curDist);
+        const e2 = getElevAtDist(curDist + step);
         const grade = ((e2 - e1) / (step * 5280)) * 100;
+        
         document.getElementById('grade-val').innerText = isFinite(grade) ? grade.toFixed(1) : "0.0";
         document.getElementById('remain-val').innerText = Math.max(0, totalDist - curDist).toFixed(1);
 
-        const minX = curDist - (WINDOW_MI * 0.25), maxX = curDist + (WINDOW_MI * 0.75);
-        chart.options.scales.x.min = minX; chart.options.scales.x.max = maxX;
+        chart.options.scales.x.min = curDist - (WINDOW_MI * 0.25);
+        chart.options.scales.x.max = curDist + (WINDOW_MI * 0.75);
         chart.data.datasets[1].data = [{ x: curDist, y: e1 }];
         chart.update('none'); 
     }
@@ -285,17 +223,51 @@
         try {
             const dom = new DOMParser().parseFromString(xmlString, "text/xml");
             const geojson = toGeoJSON.kml(dom);
-            let allCoords = [];
+            let coords = [];
             geojson.features.forEach(f => {
-                if (f.geometry.type === 'LineString') allCoords = allCoords.concat(f.geometry.coordinates);
-                else if (f.geometry.type === 'MultiLineString') f.geometry.coordinates.forEach(line => { allCoords = allCoords.concat(line); });
+                if (f.geometry.type === 'LineString') coords = coords.concat(f.geometry.coordinates);
+                else if (f.geometry.type === 'MultiLineString') f.geometry.coordinates.forEach(line => { coords = coords.concat(line); });
             });
-            if (allCoords.length === 0) return;
-            
-            masterCoords = allCoords; 
+            if (coords.length === 0) return;
+            masterCoords = coords;
             localStorage.setItem('cycling_route_foss', xmlString);
-            processRoutePoints(masterCoords);
+            processRoutePoints(coords);
         } catch(e) { console.error(e); }
+    }
+
+    function updateTime() {
+        const now = new Date();
+        document.getElementById('time-val').innerText = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase();
+    }
+
+    function startGPS() {
+        const options = { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 };
+        navigator.geolocation.watchPosition(handleGPSUpdate, () => {}, options);
+    }
+
+    function setupListeners() {
+        document.getElementById('route-upload').onchange = (e) => {
+            const reader = new FileReader();
+            reader.onload = (ev) => loadKml(ev.target.result);
+            reader.readAsText(e.target.files[0]);
+        };
+        document.getElementById('rev-btn').onclick = () => { if(masterCoords.length) { masterCoords.reverse(); processRoutePoints(masterCoords); } };
+        document.getElementById('reset-btn').onclick = () => { localStorage.clear(); location.reload(); };
+        document.getElementById('recenter-btn').onclick = function() {
+            isFollowing = true;
+            this.style.opacity = '0';
+            setTimeout(() => this.style.display = 'none', 500);
+        };
+        map.on('dragstart', () => { 
+            isFollowing = false; 
+            const btn = document.getElementById('recenter-btn');
+            btn.style.display = 'block';
+            setTimeout(() => btn.style.opacity = '1', 10);
+        });
+        document.getElementById('fs-btn').onclick = () => {
+            if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
+            else document.exitFullscreen();
+        };
     }
 
     window.onload = init;
