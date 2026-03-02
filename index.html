@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro - Precision Build</title>
+    <title>CycleDash Pro - Status Feedback</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -22,9 +22,10 @@
         .label { font-size: 9px; font-weight: bold; color: #888; text-transform: uppercase; }
         .val-text { font-size: 17px; font-weight: bold; font-family: monospace; color: #fff; }
 
-        /* TIME TOGGLE COLOR */
+        /* HEARTBEAT STATES */
         .pulse-green { color: #2ecc71 !important; } 
-        /* RENDER HEARTBEAT SHADOW */
+        .pulse-yellow { color: #f1c40f !important; }
+        .pulse-red { color: #e74c3c !important; }
         .active-shadow { text-shadow: 0 0 10px rgba(46, 204, 113, 1); color: #fff !important; }
 
         #map { flex: 1; background: #111; position: relative; width: 100%; z-index: 1; overflow: hidden; }
@@ -38,7 +39,6 @@
         
         .action-btn { font-size: 9px; cursor: pointer; text-align: center; width: 80px; padding: 8px 0; background: #fff; border: 1px solid #999; border-radius: 4px; font-weight: bold; color: #333; }
         #status { position: absolute; bottom: 8px; left: 8px; z-index: 2000; font-size: 10px; color: #2ecc71; font-weight: bold; font-family: monospace; }
-        
         #recenter-btn { position: absolute; top: 10px; right: 10px; z-index: 2000; background: #3498db; color: white; border: none; display: none; padding: 8px 12px; font-size: 10px; font-weight: bold; border-radius: 4px; cursor: pointer; }
     </style>
 </head>
@@ -81,8 +81,10 @@
     let map, chart, userMarker, snappedMarker;
     let masterCoords = [], routeGeoJson = null, kmlRouteLine = null, routeData = [];
     let isFollowing = true, totalDist = 0, lastValidLat = 0, lastValidLng = 0, targetHeading = 0, frameCount = 0;
+    let lastUpdateTime = 0; // Tracks when we last got a satellite ping
     
     const MAX_ACCURACY_METERS = 45; 
+    const STALE_THRESHOLD_MS = 5000;
     const METERS_TO_FEET = 3.28084, MPS_TO_MPH = 2.23694, WINDOW_MI = 0.25;
 
     function updateTime() {
@@ -96,15 +98,25 @@
 
     function renderLoop() {
         frameCount++;
+        const now = Date.now();
+        const timeLabel = document.getElementById('time-label');
+        const statusLabel = document.getElementById('status');
         
-        // 1. RENDER HEARTBEAT: Pulse shadow on status twice per second
+        // 1. STALE DATA DETECTION (RED TOGGLE)
+        if (now - lastUpdateTime > STALE_THRESHOLD_MS) {
+            statusLabel.innerText = "GPS: LOST SIGNAL";
+            timeLabel.classList.remove('pulse-green', 'pulse-yellow');
+            // Toggle red every 60 frames (~1 second)
+            if (frameCount % 60 === 0) timeLabel.classList.toggle('pulse-red');
+        }
+
+        // 2. RENDER HEARTBEAT (Shadow)
         if (frameCount % 30 === 0) {
-            document.getElementById('status').classList.toggle('active-shadow');
+            statusLabel.classList.toggle('active-shadow');
         }
 
         if (lastValidLat !== 0) {
             userMarker.setLatLng([lastValidLat, lastValidLng]);
-            
             if (isFollowing) {
                 map.setView([lastValidLat, lastValidLng], map.getZoom(), { animate: false });
                 const pane = map.getPane('mapPane');
@@ -117,21 +129,25 @@
     }
 
     function handleGPSUpdate(pos) {
+        lastUpdateTime = Date.now();
         const { latitude, longitude, speed, altitude, heading, accuracy } = pos.coords;
-
-        // 2. DATA HEARTBEAT: Explicitly toggle TIME label on every coordinate arrival
         const timeLabel = document.getElementById('time-label');
-        timeLabel.classList.toggle('pulse-green');
-
         const accFt = Math.round(accuracy * METERS_TO_FEET);
 
-        if (accuracy > MAX_ACCURACY_METERS && lastValidLat !== 0) {
-            document.getElementById('status').innerText = `GPS: ±${accFt}FT (JITTER)`;
-            return; 
-        }
+        // Remove the "Stale Red" immediately upon data arrival
+        timeLabel.classList.remove('pulse-red');
 
-        // 3. DESCRIPTIVE STATUS: Shows accuracy in feet
-        document.getElementById('status').innerText = `GPS: ±${accFt}FT`;
+        // DATA HEARTBEAT (Toggle Green or Yellow)
+        if (accuracy > MAX_ACCURACY_METERS) {
+            timeLabel.classList.remove('pulse-green');
+            timeLabel.classList.toggle('pulse-yellow');
+            document.getElementById('status').innerText = `GPS: ±${accFt}FT (POOR)`;
+            return; // Exit without updating map/marker
+        } else {
+            timeLabel.classList.remove('pulse-yellow');
+            timeLabel.classList.toggle('pulse-green');
+            document.getElementById('status').innerText = `GPS: ±${accFt}FT`;
+        }
 
         lastValidLat = latitude;
         lastValidLng = longitude;
@@ -145,12 +161,9 @@
     }
 
     function init() {
-        updateTime();
-        setInterval(updateTime, 1000);
-
+        updateTime(); setInterval(updateTime, 1000);
         map = L.map('map', { zoomControl: false, preferCanvas: true }).setView([0, 0], 16);
         L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png').addTo(map);
-
         userMarker = L.circleMarker([0,0], { stroke: false, fillOpacity: 1, fillColor: '#3498db', radius: 7, zIndexOffset: 1000 }).addTo(map);
         snappedMarker = L.circleMarker([0,0], { stroke: false, fillOpacity: 1, fillColor: '#f39c12', radius: 6 }).addTo(map);
 
@@ -167,8 +180,8 @@
         setupListeners();
         const saved = localStorage.getItem('cycling_route_foss');
         if (saved) loadKml(saved);
-        
         requestAnimationFrame(renderLoop);
+        
         navigator.geolocation.watchPosition(handleGPSUpdate, (e) => {
             document.getElementById('status').innerText = "GPS: ERROR " + e.code;
         }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
@@ -238,29 +251,18 @@
         };
         document.getElementById('rev-btn').onclick = () => { if(masterCoords.length) { masterCoords.reverse(); processRoutePoints(masterCoords); } };
         document.getElementById('reset-btn').onclick = () => { localStorage.clear(); location.reload(); };
-        
         document.getElementById('recenter-btn').onclick = function() {
-            isFollowing = true;
-            this.style.display = 'none';
-            if (lastValidLat !== 0) {
-                map.setView([lastValidLat, lastValidLng], map.getZoom(), { animate: true });
-            }
+            isFollowing = true; this.style.display = 'none';
+            if (lastValidLat !== 0) map.setView([lastValidLat, lastValidLng], map.getZoom(), { animate: true });
         };
-
-        // BUTTON APPEARS ON ANY MAP MOVEMENT
         map.on('movestart', () => { 
-            if (isFollowing) {
-                isFollowing = false; 
-                document.getElementById('recenter-btn').style.display = 'block'; 
-            }
+            if (isFollowing) { isFollowing = false; document.getElementById('recenter-btn').style.display = 'block'; }
         });
-        
         document.getElementById('fs-btn').onclick = () => {
             if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
             else document.exitFullscreen();
         };
     }
-
     window.onload = init;
 </script>
 </body>
