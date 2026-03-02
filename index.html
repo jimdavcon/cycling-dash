@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro - Reliability Build</title>
+    <title>CycleDash Pro - Logic Fix</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -36,6 +36,8 @@
         
         .action-btn { font-size: 9px; cursor: pointer; text-align: center; width: 80px; padding: 8px 0; background: #fff; border: 1px solid #999; border-radius: 4px; font-weight: bold; color: #333; }
         #status { position: absolute; bottom: 8px; left: 8px; z-index: 2000; font-size: 10px; color: #2ecc71; font-weight: bold; }
+        
+        #recenter-btn { position: absolute; top: 10px; right: 10px; z-index: 2000; background: #3498db; color: white; border: none; display: none; padding: 8px 12px; font-size: 10px; font-weight: bold; border-radius: 4px; cursor: pointer; }
     </style>
 </head>
 <body>
@@ -59,7 +61,7 @@
     <div id="map">
         <div id="compass-ui"><div id="needle"></div></div>
         <div id="status">GPS: SEARCHING</div>
-        <button class="action-btn" id="recenter-btn" style="position:absolute; top:10px; right:10px; z-index:2000; display:none;">RECENTER</button>
+        <button id="recenter-btn">RECENTER</button>
     </div>
 
     <div id="bottom-tray">
@@ -92,15 +94,21 @@
 
     function renderLoop() {
         frameCount++;
-        if (isFollowing && lastValidLat !== 0) {
+        if (lastValidLat !== 0) {
+            // 1. ALWAYS update the marker position, even if map is panned
             userMarker.setLatLng([lastValidLat, lastValidLng]);
-            map.setView([lastValidLat, lastValidLng], map.getZoom(), { animate: false });
-            
-            const pane = map.getPane('mapPane');
-            pane.style.transform = `rotate(${-targetHeading}deg)`;
+
+            // 2. ONLY follow/rotate map if following mode is active
+            if (isFollowing) {
+                map.setView([lastValidLat, lastValidLng], map.getZoom(), { animate: false });
+                const pane = map.getPane('mapPane');
+                pane.style.transform = `rotate(${-targetHeading}deg)`;
+            }
+
+            // Always rotate the needle based on heading
             document.getElementById('needle').style.transform = `rotate(${-targetHeading}deg)`;
             
-            // RENDER HEARTBEAT: Pulse shadow twice a second
+            // RENDER HEARTBEAT (Shadow)
             if (frameCount % 30 === 0) {
                 document.getElementById('status').classList.toggle('active-shadow');
             }
@@ -111,7 +119,7 @@
     function handleGPSUpdate(pos) {
         const { latitude, longitude, speed, altitude, heading, accuracy } = pos.coords;
 
-        // DATA HEARTBEAT: Toggle TIME label on every valid signal
+        // DATA HEARTBEAT (TIME color toggle)
         document.getElementById('time-label').classList.toggle('pulse-green');
 
         if (accuracy > MAX_ACCURACY_METERS && lastValidLat !== 0) {
@@ -157,13 +165,13 @@
         const saved = localStorage.getItem('cycling_route_foss');
         if (saved) loadKml(saved);
         
-        // Start Loops
         requestAnimationFrame(renderLoop);
         navigator.geolocation.watchPosition(handleGPSUpdate, (e) => {
             document.getElementById('status').innerText = "GPS: ERROR " + e.code;
         }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
     }
 
+    // Logic for Route Processing
     function processRoutePoints(sourceCoords) {
         routeData = []; totalDist = 0;
         const processed = sourceCoords.map(c => [c[0], c[1], (c[2] || 0) * METERS_TO_FEET]);
@@ -230,8 +238,22 @@
         };
         document.getElementById('rev-btn').onclick = () => { if(masterCoords.length) { masterCoords.reverse(); processRoutePoints(masterCoords); } };
         document.getElementById('reset-btn').onclick = () => { localStorage.clear(); location.reload(); };
-        document.getElementById('recenter-btn').onclick = function() { isFollowing = true; this.style.display = 'none'; };
-        map.on('dragstart', () => { isFollowing = false; document.getElementById('recenter-btn').style.display = 'block'; });
+        
+        // RECENTER FIX
+        document.getElementById('recenter-btn').onclick = function() {
+            isFollowing = true;
+            this.style.display = 'none';
+            // Snap map back to user immediately
+            if (lastValidLat !== 0) {
+                map.setView([lastValidLat, lastValidLng], map.getZoom(), { animate: true });
+            }
+        };
+
+        map.on('dragstart', () => { 
+            isFollowing = false; 
+            document.getElementById('recenter-btn').style.display = 'block'; 
+        });
+        
         document.getElementById('fs-btn').onclick = () => {
             if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
             else document.exitFullscreen();
