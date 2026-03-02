@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro - Proportional Bars</title>
+    <title>CycleDash Pro - Restored HUD</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -16,10 +16,13 @@
         body, html { margin: 0; padding: 0; height: 100svh; width: 100%; overflow: hidden; background: #1a1a1a; font-family: -apple-system, system-ui, sans-serif; }
         #container { display: flex; flex-direction: column; height: 100svh; width: 100vw; }
         
+        /* HUD Header Styling */
         #hud-header { background: #222; color: white; padding-top: var(--sat); display: grid; grid-template-columns: 1fr 1.1fr 1fr; border-bottom: 1px solid #444; flex-shrink: 0; z-index: 1000; height: 60px; }
         .hud-column { display: flex; flex-direction: column; padding: 0px 10px; justify-content: center; }
         .data-row { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #333; padding: 0px 0; line-height: 1.2; }
         .label { font-size: 9px; font-weight: bold; color: #888; text-transform: uppercase; }
+        
+        /* Restored val-text size for all headers including time */
         .val-text { font-size: 17px; font-weight: bold; font-family: monospace; color: #fff; }
 
         .pulse-green { color: #2ecc71 !important; } 
@@ -99,11 +102,11 @@
         frameCount++;
         const now = Date.now();
         const statusLabel = document.getElementById('status');
-        const timeLabel = document.getElementById('time-label');
+        const timeVal = document.getElementById('time-val');
 
         if (now - lastUpdateTime > 5000) {
             statusLabel.innerText = "GPS: LOST SIGNAL";
-            if (frameCount % 60 === 0) timeLabel.classList.toggle('pulse-red');
+            if (frameCount % 60 === 0) timeVal.classList.toggle('pulse-red');
         }
 
         while (breadcrumbs.length > 0 && (now - breadcrumbs[0].timestamp) > 300000) {
@@ -126,17 +129,17 @@
     function handleGPSUpdate(pos) {
         lastUpdateTime = Date.now();
         const { latitude, longitude, speed, altitude, heading, accuracy } = pos.coords;
-        const timeLabel = document.getElementById('time-label');
+        const timeVal = document.getElementById('time-val');
 
         if (accuracy < 45) {
-            timeLabel.className = 'val-text pulse-green';
+            timeVal.className = 'val-text pulse-green';
             document.getElementById('status').innerText = `GPS: ±${Math.round(accuracy * METERS_TO_FEET)}FT`;
             const bMarker = L.circleMarker([latitude, longitude], {
                 radius: 3, fillColor: '#3498db', fillOpacity: 0.4, stroke: false
             }).addTo(map);
             breadcrumbs.push({ marker: bMarker, timestamp: Date.now() });
         } else {
-            timeLabel.className = 'val-text pulse-yellow';
+            timeVal.className = 'val-text pulse-yellow';
         }
 
         lastValidLat = latitude; lastValidLng = longitude;
@@ -164,12 +167,12 @@
                         id: 'route', 
                         data: [], 
                         fill: 'origin',
-                        stepped: 'before', // This creates the proportional "Bar" look
+                        stepped: 'before', 
                         pointRadius: 0,
                         borderWidth: 2,
                         segment: {
                             borderColor: ctx => getSegmentColor(ctx),
-                            backgroundColor: ctx => getSegmentColor(ctx) + '88' // Transparent fill
+                            backgroundColor: ctx => getSegmentColor(ctx) + '88'
                         }
                     }, 
                     { 
