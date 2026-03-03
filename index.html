@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro - HUD Sync Final</title>
+    <title>CycleDash Pro - Dashed Route Build</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -20,14 +20,17 @@
         .hud-column { display: flex; flex-direction: column; padding: 0px 10px; justify-content: center; }
         .data-row { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #333; }
         
-        /* Headers: 9px Bold Gray */
         .label { font-size: 9px; font-weight: bold; color: #888; text-transform: uppercase; transition: color 0.1s; }
-        
-        /* Values: 17px Bold Monospace White */
         .val-text { font-size: 17px; font-weight: bold; font-family: monospace; color: #fff; line-height: 1.2; }
 
         #map-window { flex: 1; position: relative; overflow: hidden; background: #111; z-index: 1; }
         #map { position: absolute; width: 200%; height: 200%; top: -50%; left: -50%; transform-origin: center center; transition: transform 0.4s linear; }
+
+        #accuracy-box { 
+            position: absolute; bottom: 10px; left: 10px; z-index: 5000;
+            background: rgba(0,0,0,0.6); color: #fff; font-size: 10px; font-family: monospace;
+            padding: 3px 6px; border-radius: 4px; pointer-events: none; border: 1px solid rgba(255,255,255,0.2);
+        }
 
         #compass-ui { 
             position: absolute; top: 15px; left: 15px; z-index: 5000; 
@@ -56,10 +59,7 @@
             <div class="data-row"><span class="label">REM</span><span class="val-text" id="remain-val">---</span></div>
         </div>
         <div class="hud-column">
-            <div class="data-row">
-                <span class="label" id="status-label">TIME</span>
-                <span class="val-text" id="time-val">--:--</span>
-            </div>
+            <div class="data-row"><span class="label" id="status-label">TIME</span><span class="val-text" id="time-val">--:--</span></div>
             <div class="data-row"><span class="label">HDG</span><span class="val-text" id="heading-val">---</span></div>
         </div>
         <div class="hud-column">
@@ -70,6 +70,7 @@
 
     <div id="map-window">
         <div id="map"></div>
+        <div id="accuracy-box">GPS: -- ft</div>
         <div id="compass-ui">
             <div id="needle"></div>
             <div id="mode-sub-label">NORTH</div>
@@ -114,6 +115,7 @@
             document.getElementById('speed-val').innerText = "---";
             document.getElementById('grade-val').innerText = "---";
             document.getElementById('heading-val').innerText = "---";
+            document.getElementById('accuracy-box').innerText = "GPS: LOST";
         } else {
             statusEl.style.color = flashPhase ? "#2ecc71" : "#555";
         }
@@ -135,8 +137,10 @@
     function handleGPSUpdate(pos) {
         lastGpsTick = Date.now();
         const { latitude, longitude, speed, altitude, accuracy } = pos.coords;
-        if (accuracy > 50) return;
         lastValidLat = latitude; lastValidLng = longitude;
+        document.getElementById('accuracy-box').innerText = `GPS: ±${Math.round(accuracy * METERS_TO_FEET)}ft`;
+        
+        if (accuracy > 50) return;
         document.getElementById('speed-val').innerText = fmt(speed * MPS_TO_MPH, 1);
         document.getElementById('elev-val').innerText = fmt(altitude * METERS_TO_FEET, 0);
         updateRouteContext(latitude, longitude);
@@ -190,8 +194,16 @@
         chart.data.datasets[0].data = routeData;
         chart.data.datasets[0].backgroundColor = colors;
         chart.update();
+        
         if (kmlRouteLine) map.removeLayer(kmlRouteLine);
-        kmlRouteLine = L.polyline(processed.map(c => [c[1], c[0]]), { color: '#333', weight: 5, opacity: 0.5 }).addTo(map);
+        
+        // RESTORED: DASHED BLACK LINE
+        kmlRouteLine = L.polyline(processed.map(c => [c[1], c[0]]), { 
+            color: '#000', 
+            weight: 4, 
+            opacity: 0.6,
+            dashArray: '10, 10' 
+        }).addTo(map);
     }
 
     function updateRouteContext(lat, lng) {
