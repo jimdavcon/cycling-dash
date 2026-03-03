@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro - Mode Fix</title>
+    <title>CycleDash Pro - HUD Clean Build</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -19,26 +19,21 @@
         #hud-header { background: #222; color: white; padding-top: var(--sat); display: grid; grid-template-columns: 1fr 1.1fr 1fr; border-bottom: 1px solid #444; flex-shrink: 0; z-index: 1000; height: 60px; }
         .hud-column { display: flex; flex-direction: column; padding: 0px 10px; justify-content: center; }
         .data-row { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #333; }
-        .label { font-size: 9px; font-weight: bold; color: #888; text-transform: uppercase; }
+        .label { font-size: 9px; font-weight: bold; color: #888; text-transform: uppercase; transition: color 0.3s; }
         .val-text { font-size: 17px; font-weight: bold; font-family: monospace; color: #fff; }
 
         #map-window { flex: 1; position: relative; overflow: hidden; background: #111; z-index: 1; }
-        #map { 
-            position: absolute; width: 200%; height: 200%; top: -50%; left: -50%; 
-            transform-origin: center center; 
-            transition: transform 0.4s cubic-bezier(0.2, 0, 0.2, 1); 
-        }
+        #map { position: absolute; width: 200%; height: 200%; top: -50%; left: -50%; transform-origin: center center; transition: transform 0.4s linear; }
 
-        /* Compass UI - Enhanced for touch */
         #compass-ui { 
             position: absolute; top: 15px; left: 15px; z-index: 5000; 
-            width: 50px; height: 50px; background: rgba(0,0,0,0.85); 
-            border-radius: 50%; display: flex; align-items: center; justify-content: center; 
+            width: 55px; height: 55px; background: rgba(0,0,0,0.85); 
+            border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; 
             border: 2px solid #fff; cursor: pointer; pointer-events: auto;
-            box-shadow: 0 0 15px rgba(0,0,0,0.5);
         }
-        #needle { width: 4px; height: 34px; background: #e74c3c; position: relative; transition: transform 0.3s ease; pointer-events: none; }
+        #needle { width: 4px; height: 28px; background: #e74c3c; position: relative; transition: transform 0.3s ease; }
         #needle::after { content: ''; position: absolute; bottom: 0; left: 0; width: 100%; height: 50%; background: #fff; }
+        #mode-sub-label { font-size: 7px; color: #fff; font-weight: bold; margin-top: 2px; text-transform: uppercase; }
 
         #bottom-tray { display: flex; height: 140px; background: #fff; border-top: 2px solid #333; padding-bottom: var(--sab); flex-shrink: 0; z-index: 1000; }
         #chart-section { flex: 1; min-width: 0; padding: 5px; background: #f9f9f9; }
@@ -53,12 +48,12 @@
 <div id="container">
     <div id="hud-header">
         <div class="hud-column">
-            <div class="data-row"><span class="label">MPH</span><span class="val-text" id="speed-val">0.0</span></div>
+            <div class="data-row"><span class="label">MPH</span><span class="val-text" id="speed-val">---</span></div>
             <div class="data-row"><span class="label">REM</span><span class="val-text" id="remain-val">---</span></div>
         </div>
         <div class="hud-column">
-            <div class="data-row"><span class="label" id="mode-label">NORTH</span><span class="val-text" id="time-val">--:--</span></div>
-            <div class="data-row"><span class="label">HDG</span><span class="val-text" id="heading-val">0°</span></div>
+            <div class="data-row"><span class="label" id="status-label">STATUS</span><span class="val-text" id="time-val">--:--</span></div>
+            <div class="data-row"><span class="label">HDG</span><span class="val-text" id="heading-val">---</span></div>
         </div>
         <div class="hud-column">
             <div class="data-row"><span class="label">ELV</span><span class="val-text" id="elev-val">---</span></div>
@@ -68,7 +63,10 @@
 
     <div id="map-window">
         <div id="map"></div>
-        <div id="compass-ui" title="Toggle North/Route Up"><div id="needle"></div></div>
+        <div id="compass-ui">
+            <div id="needle"></div>
+            <div id="mode-sub-label">NORTH</div>
+        </div>
         <button id="recenter-btn">RECENTER</button>
     </div>
 
@@ -87,42 +85,57 @@
     let map, chart, userMarker, snappedMarker;
     let masterCoords = [], routeGeoJson = null, kmlRouteLine = null, routeData = [];
     let isFollowing = true, isRouteUp = false; 
-    let totalDist = 0, lastValidLat = 0, lastValidLng = 0, targetHeading = 0;
+    let lastValidLat = 0, lastValidLng = 0, targetHeading = 0, totalDist = 0;
+    let lastGpsTick = 0;
     
-    const METERS_TO_FEET = 3.28084, MPS_TO_MPH = 2.23694, WINDOW_MI = 0.25;
+    const METERS_TO_FEET = 3.28084, MPS_TO_MPH = 2.23694, WINDOW_MI = 1.0;
+
+    // Helper to format values safely
+    const fmt = (val, dec = 0) => (val === null || isNaN(val) || val === undefined) ? "---" : Number(val).toFixed(dec);
 
     function updateTime() {
         const now = new Date();
         let h = now.getHours(), m = now.getMinutes().toString().padStart(2, '0'), x = h >= 12 ? 'p' : 'a';
         h = h % 12 || 12;
         document.getElementById('time-val').innerText = `${h}:${m}${x}`;
+        
+        const statusEl = document.getElementById('status-label');
+        if (Date.now() - lastGpsTick > 2000) {
+            statusEl.style.color = "#555";
+            // Clear dynamic values if GPS is lost
+            document.getElementById('speed-val').innerText = "---";
+            document.getElementById('grade-val').innerText = "---";
+            document.getElementById('heading-val').innerText = "---";
+        } else {
+            statusEl.style.color = "#2ecc71";
+        }
     }
 
     function renderLoop() {
         if (lastValidLat !== 0) {
             userMarker.setLatLng([lastValidLat, lastValidLng]);
+            const mapRot = isRouteUp ? -targetHeading : 0;
+            const needleRot = isRouteUp ? 0 : targetHeading;
             
-            // Map Rotation logic
-            const currentMapRot = isRouteUp ? -targetHeading : 0;
-            const currentNeedleRot = isRouteUp ? 0 : targetHeading;
+            document.getElementById('map').style.transform = `rotate(${mapRot}deg)`;
+            document.getElementById('needle').style.transform = `rotate(${needleRot}deg)`;
+            document.getElementById('mode-sub-label').innerText = isRouteUp ? "ROUTE" : "NORTH";
 
-            document.getElementById('map').style.transform = `rotate(${currentMapRot}deg)`;
-            document.getElementById('needle').style.transform = `rotate(${currentNeedleRot}deg)`;
-            document.getElementById('mode-label').innerText = isRouteUp ? "ROUTE" : "NORTH";
-
-            if (isFollowing) {
-                map.setView([lastValidLat, lastValidLng], map.getZoom(), { animate: false });
-            }
+            if (isFollowing) map.setView([lastValidLat, lastValidLng], map.getZoom(), { animate: false });
         }
         requestAnimationFrame(renderLoop);
     }
 
     function handleGPSUpdate(pos) {
+        lastGpsTick = Date.now();
         const { latitude, longitude, speed, altitude, accuracy } = pos.coords;
         if (accuracy > 50) return;
+        
         lastValidLat = latitude; lastValidLng = longitude;
-        document.getElementById('speed-val').innerText = speed ? (speed * MPS_TO_MPH).toFixed(1) : "0.0";
-        document.getElementById('elev-val').innerText = altitude ? Math.round(altitude * METERS_TO_FEET) : "---";
+        
+        document.getElementById('speed-val').innerText = fmt(speed * MPS_TO_MPH, 1);
+        document.getElementById('elev-val').innerText = fmt(altitude * METERS_TO_FEET, 0);
+        
         updateRouteContext(latitude, longitude);
     }
 
@@ -130,7 +143,6 @@
         updateTime(); setInterval(updateTime, 1000);
         map = L.map('map', { zoomControl: false, preferCanvas: true, attributionControl: false }).setView([0,0], 17);
         L.tileLayer('https://{s}.tile.osm.org/{z}/{x}/{y}.png').addTo(map);
-        
         userMarker = L.circleMarker([0,0], { stroke: true, color: '#fff', weight: 2, fillOpacity: 1, fillColor: '#3498db', radius: 8, zIndexOffset: 1000 }).addTo(map);
         snappedMarker = L.circleMarker([0,0], { stroke: false, fillOpacity: 1, fillColor: '#f39c12', radius: 6 }).addTo(map);
 
@@ -139,7 +151,7 @@
             type: 'bar',
             data: { 
                 datasets: [{ 
-                    id:'route', data:[], backgroundColor: [], barPercentage: 1.0, categoryPercentage: 1.0, barThickness: 'flex'
+                    id:'route', data:[], backgroundColor: [], barPercentage: 1.0, categoryPercentage: 1.0, barThickness: 6
                 }, { 
                     id:'user-pos', type: 'line', data:[], pointRadius:8, pointBackgroundColor:'#f39c12', showLine:false 
                 }]
@@ -150,7 +162,6 @@
         setupListeners();
         const saved = localStorage.getItem('cycling_route_foss');
         if (saved) loadKml(saved);
-        
         setTimeout(() => map.invalidateSize(), 500);
         requestAnimationFrame(renderLoop);
         if ("geolocation" in navigator) navigator.geolocation.watchPosition(handleGPSUpdate, null, { enableHighAccuracy: true });
@@ -193,11 +204,13 @@
         const p2 = turf.along(routeGeoJson, curDist + 0.04, {units: 'miles'});
         targetHeading = turf.bearing(p1, p2);
         
-        document.getElementById('heading-val').innerText = Math.round((targetHeading + 360) % 360) + "°";
+        document.getElementById('heading-val').innerText = fmt((targetHeading + 360) % 360, 0) + "°";
         const e1 = getElevAtDist(curDist);
         const e2 = getElevAtDist(curDist + 0.01);
-        document.getElementById('grade-val').innerText = (((e2 - e1) / (0.01 * 5280)) * 100).toFixed(1);
-        document.getElementById('remain-val').innerText = Math.max(0, totalDist - curDist).toFixed(1);
+        const calcGrade = ((e2 - e1) / (0.01 * 5280)) * 100;
+        
+        document.getElementById('grade-val').innerText = fmt(calcGrade, 1);
+        document.getElementById('remain-val').innerText = fmt(Math.max(0, totalDist - curDist), 1);
         
         chart.options.scales.x.min = curDist - (WINDOW_MI * 0.25);
         chart.options.scales.x.max = curDist + (WINDOW_MI * 0.75);
@@ -234,26 +247,9 @@
         };
         document.getElementById('rev-btn').onclick = () => { if(masterCoords.length) { masterCoords.reverse(); processRoutePoints(masterCoords); } };
         document.getElementById('reset-btn').onclick = () => { localStorage.clear(); location.reload(); };
-        
-        // RECENTER BUTTON: Only handles GPS locking
-        document.getElementById('recenter-btn').onclick = (e) => {
-            e.stopPropagation();
-            isFollowing = true; 
-            document.getElementById('recenter-btn').style.display = 'none';
-        };
-        
-        // COMPASS UI: Only handles rotation mode toggling
-        document.getElementById('compass-ui').onclick = (e) => {
-            e.stopPropagation();
-            isRouteUp = !isRouteUp;
-            console.log("Mode Toggled: " + (isRouteUp ? "Route-Up" : "North-Up"));
-        };
-
-        map.on('dragstart', () => { 
-            isFollowing = false; 
-            document.getElementById('recenter-btn').style.display = 'block'; 
-        });
-        
+        document.getElementById('recenter-btn').onclick = () => { isFollowing = true; document.getElementById('recenter-btn').style.display = 'none'; };
+        document.getElementById('compass-ui').onclick = () => { isRouteUp = !isRouteUp; };
+        map.on('dragstart', () => { isFollowing = false; document.getElementById('recenter-btn').style.display = 'block'; });
         document.getElementById('fs-btn').onclick = () => {
             if (!document.fullscreenElement) document.documentElement.requestFullscreen();
             else document.exitFullscreen();
