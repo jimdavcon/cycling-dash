@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro - Nav View</title>
+    <title>CycleDash Pro - Dual Orientation</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -19,13 +19,7 @@
         #hud-header { background: #222; color: white; padding-top: var(--sat); display: grid; grid-template-columns: 1fr 1.1fr 1fr; border-bottom: 1px solid #444; flex-shrink: 0; z-index: 2000; height: 60px; }
         #bottom-tray { display: flex; height: 140px; background: #fff; border-top: 2px solid #333; padding-bottom: var(--sab); flex-shrink: 0; width: 100%; z-index: 2000; }
         
-        #map-viewport { 
-            flex: 1; 
-            position: relative; 
-            overflow: hidden; 
-            background: #111;
-            z-index: 1;
-        }
+        #map-viewport { flex: 1; position: relative; overflow: hidden; background: #111; z-index: 1; }
 
         #map { 
             position: absolute;
@@ -33,7 +27,7 @@
             left: -50%; 
             width: 200%; 
             height: 200%; 
-            transition: transform 0.1s linear; 
+            transition: transform 0.2s ease-out; /* Smooth mode transitions */
             will-change: transform;
         }
 
@@ -42,8 +36,9 @@
         .label { font-size: 9px; font-weight: bold; color: #888; text-transform: uppercase; }
         .val-text { font-size: 17px; font-weight: bold; font-family: monospace; color: #fff; }
 
-        #compass-ui { position: absolute; top: 10px; left: 10px; z-index: 3000; width: 44px; height: 44px; background: rgba(0,0,0,0.7); border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid #fff; cursor: pointer; }
-        #needle { width: 3px; height: 30px; background: #e74c3c; position: relative; }
+        #compass-ui { position: absolute; top: 10px; left: 10px; z-index: 3000; width: 44px; height: 44px; background: rgba(0,0,0,0.8); border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid #fff; cursor: pointer; transition: background 0.2s; }
+        .mode-north { border-color: #888 !important; opacity: 0.7; }
+        #needle { width: 3px; height: 30px; background: #e74c3c; position: relative; transition: transform 0.1s linear; }
         #needle::after { content: ''; position: absolute; bottom: 0; left: 0; width: 3px; height: 50%; background: #fff; }
 
         #chart-section { flex: 1; min-width: 0; position: relative; padding: 5px; }
@@ -81,7 +76,7 @@
 </div>
 
 <script>
-    // --- SERVICE WORKER REGISTRATION (OFFLINE CACHE) ---
+    // --- CACHE & SW ---
     if ('serviceWorker' in navigator) {
         const swCode = `const CACHE_NAME = 'cycledash-tiles-v1'; self.addEventListener('fetch', (e) => { if (e.request.url.includes('tile.openstreetmap.fr')) { e.respondWith(caches.match(e.request).then((res) => res || fetch(e.request).then((fRes) => caches.open(CACHE_NAME).then((c) => { c.put(e.request, fRes.clone()); return fRes; })))); } });`;
         const blob = new Blob([swCode], { type: 'text/javascript' });
@@ -90,7 +85,7 @@
 
     let map, chart, userMarker, snappedMarker;
     let masterCoords = [], routeGeoJson = null, kmlRouteLine = null, routeData = [];
-    let isFollowing = true, isCourseUp = true, lastValidLat = 0, lastValidLng = 0, targetHeading = 0, currentRotation = 0;
+    let isFollowing = true, isCourseUp = true, lastValidLat = 0, lastValidLng = 0, routeBearing = 0, currentRotation = 0;
     let lastUpdateTime = 0;
     
     const DEFAULT_ZOOM = 16;
@@ -103,35 +98,32 @@
     }
 
     function renderLoop() {
-        const now = Date.now();
         if (lastValidLat !== 0) {
             userMarker.setLatLng([lastValidLat, lastValidLng]);
             
-            // Rotation Smoothing
-            let diff = targetHeading - currentRotation;
+            // If in Course-Up, target the route bearing. If North-Up, target 0.
+            const target = isCourseUp ? routeBearing : 0;
+            
+            let diff = target - currentRotation;
             while (diff < -180) diff += 360; while (diff > 180) diff -= 360;
             currentRotation += diff * 0.1; 
 
-            const rotationAngle = isCourseUp ? -currentRotation : 0;
             const mapEl = document.getElementById('map');
             
-            // Map Pivot Logic
-            // We want the user at 1/3 from the bottom. 
-            // In a viewport-relative context, that's roughly a 16.6% vertical offset from the center.
-            const verticalOffsetPercent = isCourseUp ? 16.6 : 0; 
-            mapEl.style.transformOrigin = `50% ${50 + verticalOffsetPercent}%`;
-            mapEl.style.transform = `rotate(${rotationAngle}deg)`;
+            // Adjust focal point based on mode
+            const pivotY = isCourseUp ? 66.6 : 50; 
+            mapEl.style.transformOrigin = `50% ${pivotY}%`;
+            mapEl.style.transform = `rotate(${-currentRotation}deg)`;
             
-            document.getElementById('needle').style.transform = `rotate(${-currentRotation}deg)`;
-            document.getElementById('heading-val').innerText = Math.round((currentRotation + 360) % 360) + "°";
+            // Compass needle always shows your route bearing relative to the map
+            document.getElementById('needle').style.transform = `rotate(${routeBearing - currentRotation}deg)`;
+            document.getElementById('heading-val').innerText = Math.round((routeBearing + 360) % 360) + "°";
 
             if (isFollowing) {
-                // To keep marker at 1/3 height, we pan the map so the user coordinates 
-                // are offset by 1/6th of the map's pixel height.
                 const mapHeight = map.getSize().y;
-                const offsetPx = isCourseUp ? (mapHeight / 6) : 0;
+                const offsetPx = ((pivotY - 50) / 100) * mapHeight;
                 map.setView([lastValidLat, lastValidLng], map.getZoom(), { animate: false });
-                map.panBy([0, -offsetPx], { animate: false });
+                if (offsetPx !== 0) map.panBy([0, -offsetPx], { animate: false });
             }
         }
         requestAnimationFrame(renderLoop);
@@ -139,10 +131,9 @@
 
     function handleGPSUpdate(pos) {
         lastUpdateTime = Date.now();
-        const { latitude, longitude, speed, altitude, heading, accuracy } = pos.coords;
+        const { latitude, longitude, speed, altitude, accuracy } = pos.coords;
         document.getElementById('status').innerText = `GPS: ±${Math.round(accuracy * METERS_TO_FEET)}FT`;
         lastValidLat = latitude; lastValidLng = longitude;
-        if (!routeGeoJson && heading !== null) targetHeading = heading;
         document.getElementById('speed-val').innerText = speed ? (speed * MPS_TO_MPH).toFixed(1) : "0.0";
         document.getElementById('elev-val').innerText = altitude ? Math.round(altitude * METERS_TO_FEET) : "---";
         updateRouteContext(latitude, longitude);
@@ -199,7 +190,10 @@
         snappedMarker.setLatLng([snapped.geometry.coordinates[1], snapped.geometry.coordinates[0]]);
         const lookAheadDist = Math.min(totalDist, curDist + 0.02);
         const pointAhead = turf.along(routeGeoJson, lookAheadDist, {units: 'miles'});
-        targetHeading = turf.bearing(turf.point(snapped.geometry.coordinates), turf.point(pointAhead.geometry.coordinates));
+        
+        // Calculate bearing based on route segment
+        routeBearing = turf.bearing(turf.point(snapped.geometry.coordinates), turf.point(pointAhead.geometry.coordinates));
+        
         const e1 = getElevAtDist(curDist);
         document.getElementById('remain-val').innerText = Math.max(0, totalDist - curDist).toFixed(1);
         chart.options.scales.x.min = curDist - (WINDOW_MI * 0.25);
@@ -241,7 +235,13 @@
         document.getElementById('reset-btn').onclick = () => { localStorage.clear(); location.reload(); };
         document.getElementById('recenter-btn').onclick = function() { isFollowing = true; this.style.display = 'none'; };
         map.on('dblclick', () => map.setZoom(DEFAULT_ZOOM));
-        document.getElementById('compass-ui').onclick = function() { isCourseUp = !isCourseUp; this.style.borderColor = isCourseUp ? '#fff' : '#444'; };
+        
+        // --- COMPASS TOGGLE ---
+        document.getElementById('compass-ui').onclick = function() { 
+            isCourseUp = !isCourseUp; 
+            this.classList.toggle('mode-north', !isCourseUp);
+        };
+
         map.on('dragstart zoomstart', () => { if (isFollowing) { isFollowing = false; document.getElementById('recenter-btn').style.display = 'block'; } });
         document.getElementById('fs-btn').onclick = () => { if (!document.fullscreenElement) document.documentElement.requestFullscreen(); else document.exitFullscreen(); };
     }
