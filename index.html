@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro</title>
+    <title>CycleDash Pro - Dashed Route</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -21,19 +21,19 @@
         
         #map-viewport { flex: 1; position: relative; overflow: hidden; background: #111; z-index: 1; }
 
-        /* Overscan to ensure rotation doesn't show edges */
+        /* 300% Overscan for offset rotation coverage */
         #map { 
             position: absolute;
-            top: -50%; 
-            left: -50%; 
-            width: 200%; 
-            height: 200%; 
+            top: -100%; 
+            left: -100%; 
+            width: 300%; 
+            height: 300%; 
             transition: transform 0.1s linear; 
             will-change: transform;
         }
 
         .hud-column { display: flex; flex-direction: column; padding: 0px 10px; justify-content: center; }
-        .data-row { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #333; padding: 0px 0; line-height: 1.2; }
+        .data-row { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #333; line-height: 1.2; }
         .label { font-size: 9px; font-weight: bold; color: #888; text-transform: uppercase; }
         .val-text { font-size: 17px; font-weight: bold; font-family: monospace; color: #fff; }
 
@@ -67,7 +67,7 @@
     <div id="bottom-tray">
         <div id="chart-section"><canvas id="elevationChart"></canvas></div>
         <div id="action-section">
-            <label class="action-btn">LOAD <input type="file" id="route-upload" accept=".kml" style="display:none"></label>
+            <label class="action-btn">LOAD <input type="file" id="route-upload" accept=".kml,.kmz" style="display:none"></label>
             <button class="action-btn" id="rev-btn">REVERSE</button>
             <button class="action-btn" id="fs-btn">FULL</button>
             <button class="action-btn" id="reset-btn">RESET</button>
@@ -85,18 +85,13 @@
     function renderLoop() {
         if (lastLat !== 0) {
             userMarker.setLatLng([lastLat, lastLng]);
-            
             const target = isCourseUp ? routeBearing : 0;
             let diff = target - currentRotation;
             while (diff < -180) diff += 360; while (diff > 180) diff -= 360;
             currentRotation += diff * 0.1; 
 
             const mapEl = document.getElementById('map');
-            
-            // Marker 1/3 from bottom logic:
-            // Center is 50%. Top is 0%. Bottom is 100%.
-            // 1/3 from bottom = 66.6% vertical pivot.
-            const pivotY = isCourseUp ? 66.6 : 50; 
+            const pivotY = isCourseUp ? 55.555 : 50; 
             mapEl.style.transformOrigin = `50% ${pivotY}%`;
             mapEl.style.transform = `rotate(${-currentRotation}deg)`;
             
@@ -105,7 +100,6 @@
 
             if (isFollowing) {
                 const viewportH = map.getSize().y;
-                // Move map by 1/6th of height to create the 1/3 offset
                 const offsetPx = isCourseUp ? (viewportH / 6) : 0;
                 map.setView([lastLat, lastLng], map.getZoom(), { animate: false });
                 if (offsetPx !== 0) map.panBy([0, -offsetPx], { animate: false });
@@ -133,56 +127,4 @@
             const { latitude, longitude, speed, altitude, accuracy } = pos.coords;
             lastLat = latitude; lastLng = longitude;
             document.getElementById('status').innerText = `GPS: ±${Math.round(accuracy * METERS_TO_FEET)}FT`;
-            document.getElementById('speed-val').innerText = speed ? (speed * MPS_TO_MPH).toFixed(1) : "0.0";
-            updateRouteContext(latitude, longitude);
-        }, null, { enableHighAccuracy: true });
-
-        requestAnimationFrame(renderLoop);
-    }
-
-    function updateRouteContext(lat, lng) {
-        if (!routeGeoJson) return;
-        const snapped = turf.nearestPointOnLine(routeGeoJson, turf.point([lng, lat]), {units: 'miles'});
-        const curDist = snapped.properties.location;
-        snappedMarker.setLatLng([snapped.geometry.coordinates[1], snapped.geometry.coordinates[0]]);
-        const lookAhead = turf.along(routeGeoJson, curDist + 0.02, {units: 'miles'});
-        routeBearing = turf.bearing(turf.point(snapped.geometry.coordinates), lookAhead);
-        
-        document.getElementById('remain-val').innerText = Math.max(0, routeData[routeData.length-1].x - curDist).toFixed(1);
-        chart.options.scales.x.min = curDist - (WINDOW_MI * 0.25);
-        chart.options.scales.x.max = curDist + (WINDOW_MI * 0.75);
-        chart.update('none'); 
-    }
-
-    function loadKml(xml) {
-        const dom = new DOMParser().parseFromString(xml, "text/xml");
-        const geojson = toGeoJSON.kml(dom);
-        let coords = geojson.features[0].geometry.coordinates;
-        routeGeoJson = { type: "Feature", geometry: { type: "LineString", coordinates: coords } };
-        
-        routeData = []; let d = 0;
-        for(let i=0; i < coords.length; i++) {
-            if (i > 0) d += turf.distance(turf.point(coords[i-1]), turf.point(coords[i]), {units:'miles'});
-            routeData.push({x: d, y: (coords[i][2] || 0) * METERS_TO_FEET});
-        }
-        chart.data.datasets[0].data = routeData;
-        chart.update();
-        if (kmlRouteLine) map.removeLayer(kmlRouteLine);
-        kmlRouteLine = L.polyline(coords.map(c => [c[1], c[0]]), { color: '#000', weight: 4, opacity: 0.5 }).addTo(map);
-    }
-
-    function setupListeners() {
-        document.getElementById('route-upload').onchange = (e) => {
-            const r = new FileReader(); r.onload = (ev) => loadKml(ev.target.result); r.readAsText(e.target.files[0]);
-        };
-        document.getElementById('rev-btn').onclick = () => { if(masterCoords.length) { masterCoords.reverse(); loadKml(masterCoords); } };
-        document.getElementById('compass-ui').onclick = () => { isCourseUp = !isCourseUp; };
-        document.getElementById('recenter-btn').onclick = function() { isFollowing = true; this.style.display = 'none'; };
-        map.on('dragstart', () => { isFollowing = false; document.getElementById('recenter-btn').style.display = 'block'; });
-        document.getElementById('fs-btn').onclick = () => { if (!document.fullscreenElement) document.documentElement.requestFullscreen(); else document.exitFullscreen(); };
-        document.getElementById('reset-btn').onclick = () => { localStorage.clear(); location.reload(); };
-    }
-    window.onload = init;
-</script>
-</body>
-</html>
+            document.getElementById('speed-val').innerText = speed ? (speed * MPS_TO_MPH).toFixed(1) : "0
