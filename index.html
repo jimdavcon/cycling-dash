@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro - HUD Clean Build</title>
+    <title>CycleDash Pro - HUD Sync Final</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -19,8 +19,12 @@
         #hud-header { background: #222; color: white; padding-top: var(--sat); display: grid; grid-template-columns: 1fr 1.1fr 1fr; border-bottom: 1px solid #444; flex-shrink: 0; z-index: 1000; height: 60px; }
         .hud-column { display: flex; flex-direction: column; padding: 0px 10px; justify-content: center; }
         .data-row { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #333; }
-        .label { font-size: 9px; font-weight: bold; color: #888; text-transform: uppercase; transition: color 0.3s; }
-        .val-text { font-size: 17px; font-weight: bold; font-family: monospace; color: #fff; }
+        
+        /* Headers: 9px Bold Gray */
+        .label { font-size: 9px; font-weight: bold; color: #888; text-transform: uppercase; transition: color 0.1s; }
+        
+        /* Values: 17px Bold Monospace White */
+        .val-text { font-size: 17px; font-weight: bold; font-family: monospace; color: #fff; line-height: 1.2; }
 
         #map-window { flex: 1; position: relative; overflow: hidden; background: #111; z-index: 1; }
         #map { position: absolute; width: 200%; height: 200%; top: -50%; left: -50%; transform-origin: center center; transition: transform 0.4s linear; }
@@ -52,7 +56,10 @@
             <div class="data-row"><span class="label">REM</span><span class="val-text" id="remain-val">---</span></div>
         </div>
         <div class="hud-column">
-            <div class="data-row"><span class="label" id="status-label">STATUS</span><span class="val-text" id="time-val">--:--</span></div>
+            <div class="data-row">
+                <span class="label" id="status-label">TIME</span>
+                <span class="val-text" id="time-val">--:--</span>
+            </div>
             <div class="data-row"><span class="label">HDG</span><span class="val-text" id="heading-val">---</span></div>
         </div>
         <div class="hud-column">
@@ -87,27 +94,28 @@
     let isFollowing = true, isRouteUp = false; 
     let lastValidLat = 0, lastValidLng = 0, targetHeading = 0, totalDist = 0;
     let lastGpsTick = 0;
+    let flashPhase = false;
     
     const METERS_TO_FEET = 3.28084, MPS_TO_MPH = 2.23694, WINDOW_MI = 1.0;
-
-    // Helper to format values safely
     const fmt = (val, dec = 0) => (val === null || isNaN(val) || val === undefined) ? "---" : Number(val).toFixed(dec);
 
-    function updateTime() {
+    function updateTimeAndHeartbeat() {
         const now = new Date();
         let h = now.getHours(), m = now.getMinutes().toString().padStart(2, '0'), x = h >= 12 ? 'p' : 'a';
         h = h % 12 || 12;
         document.getElementById('time-val').innerText = `${h}:${m}${x}`;
         
         const statusEl = document.getElementById('status-label');
-        if (Date.now() - lastGpsTick > 2000) {
-            statusEl.style.color = "#555";
-            // Clear dynamic values if GPS is lost
+        const isStale = (Date.now() - lastGpsTick > 2000);
+        flashPhase = !flashPhase; 
+
+        if (isStale) {
+            statusEl.style.color = flashPhase ? "#e74c3c" : "#555";
             document.getElementById('speed-val').innerText = "---";
             document.getElementById('grade-val').innerText = "---";
             document.getElementById('heading-val').innerText = "---";
         } else {
-            statusEl.style.color = "#2ecc71";
+            statusEl.style.color = flashPhase ? "#2ecc71" : "#555";
         }
     }
 
@@ -116,11 +124,9 @@
             userMarker.setLatLng([lastValidLat, lastValidLng]);
             const mapRot = isRouteUp ? -targetHeading : 0;
             const needleRot = isRouteUp ? 0 : targetHeading;
-            
             document.getElementById('map').style.transform = `rotate(${mapRot}deg)`;
             document.getElementById('needle').style.transform = `rotate(${needleRot}deg)`;
             document.getElementById('mode-sub-label').innerText = isRouteUp ? "ROUTE" : "NORTH";
-
             if (isFollowing) map.setView([lastValidLat, lastValidLng], map.getZoom(), { animate: false });
         }
         requestAnimationFrame(renderLoop);
@@ -130,17 +136,16 @@
         lastGpsTick = Date.now();
         const { latitude, longitude, speed, altitude, accuracy } = pos.coords;
         if (accuracy > 50) return;
-        
         lastValidLat = latitude; lastValidLng = longitude;
-        
         document.getElementById('speed-val').innerText = fmt(speed * MPS_TO_MPH, 1);
         document.getElementById('elev-val').innerText = fmt(altitude * METERS_TO_FEET, 0);
-        
         updateRouteContext(latitude, longitude);
     }
 
     function init() {
-        updateTime(); setInterval(updateTime, 1000);
+        updateTimeAndHeartbeat(); 
+        setInterval(updateTimeAndHeartbeat, 500);
+
         map = L.map('map', { zoomControl: false, preferCanvas: true, attributionControl: false }).setView([0,0], 17);
         L.tileLayer('https://{s}.tile.osm.org/{z}/{x}/{y}.png').addTo(map);
         userMarker = L.circleMarker([0,0], { stroke: true, color: '#fff', weight: 2, fillOpacity: 1, fillColor: '#3498db', radius: 8, zIndexOffset: 1000 }).addTo(map);
@@ -150,11 +155,8 @@
         chart = new Chart(ctx, {
             type: 'bar',
             data: { 
-                datasets: [{ 
-                    id:'route', data:[], backgroundColor: [], barPercentage: 1.0, categoryPercentage: 1.0, barThickness: 6
-                }, { 
-                    id:'user-pos', type: 'line', data:[], pointRadius:8, pointBackgroundColor:'#f39c12', showLine:false 
-                }]
+                datasets: [{ id:'route', data:[], backgroundColor: [], barPercentage: 1.0, categoryPercentage: 1.0, barThickness: 6 }, 
+                           { id:'user-pos', type: 'line', data:[], pointRadius:8, pointBackgroundColor:'#f39c12', showLine:false }]
             },
             options: { responsive:true, maintainAspectRatio:false, plugins:{legend:false}, animation:false, scales:{x:{type:'linear', display: false}, y:{grace:'15%'}}}
         });
@@ -171,7 +173,6 @@
         routeData = []; totalDist = 0; let colors = [];
         const processed = sourceCoords.map(c => [c[0], c[1], (c[2] || 0) * METERS_TO_FEET]);
         routeGeoJson = { type: "Feature", geometry: { type: "LineString", coordinates: processed } };
-        
         let d = 0;
         for(let i=0; i < processed.length; i++) {
             let grade = 0;
@@ -207,9 +208,7 @@
         document.getElementById('heading-val').innerText = fmt((targetHeading + 360) % 360, 0) + "°";
         const e1 = getElevAtDist(curDist);
         const e2 = getElevAtDist(curDist + 0.01);
-        const calcGrade = ((e2 - e1) / (0.01 * 5280)) * 100;
-        
-        document.getElementById('grade-val').innerText = fmt(calcGrade, 1);
+        document.getElementById('grade-val').innerText = fmt(((e2 - e1) / (0.01 * 5280)) * 100, 1);
         document.getElementById('remain-val').innerText = fmt(Math.max(0, totalDist - curDist), 1);
         
         chart.options.scales.x.min = curDist - (WINDOW_MI * 0.25);
