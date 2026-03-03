@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro - Recovery Build</title>
+    <title>CycleDash Pro - Restored Features</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -28,8 +28,8 @@
         .active-shadow { text-shadow: 0 0 10px rgba(46, 204, 113, 1); color: #fff !important; }
 
         #map { flex: 1; background: #111; position: relative; width: 100%; z-index: 1; }
-        #compass-ui { position: absolute; top: 10px; left: 10px; z-index: 2000; width: 34px; height: 34px; background: rgba(0,0,0,0.6); border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid #555; pointer-events: none; }
-        #needle { width: 2px; height: 24px; background: #e74c3c; position: relative; }
+        #compass-ui { position: absolute; top: 10px; left: 10px; z-index: 2000; width: 40px; height: 40px; background: rgba(0,0,0,0.7); border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid #fff; cursor: pointer; }
+        #needle { width: 2px; height: 28px; background: #e74c3c; position: relative; transition: transform 0.2s ease-out; }
         #needle::after { content: ''; position: absolute; bottom: 0; left: 0; width: 2px; height: 50%; background: #fff; }
 
         #bottom-tray { display: flex; height: 140px; background: #fff; border-top: 2px solid #333; padding-bottom: var(--sab); flex-shrink: 0; width: 100%; z-index: 1000; }
@@ -37,7 +37,7 @@
         #action-section { flex: 0 0 90px; display: flex; flex-direction: column; justify-content: space-evenly; align-items: center; background: #ececec; border-left: 1px solid #ccc; }
         
         .action-btn { font-size: 9px; cursor: pointer; text-align: center; width: 80px; padding: 8px 0; background: #fff; border: 1px solid #999; border-radius: 4px; font-weight: bold; color: #333; }
-        #status { position: absolute; bottom: 8px; left: 8px; z-index: 2000; font-size: 10px; color: #e74c3c; font-weight: bold; font-family: monospace; }
+        #status { position: absolute; bottom: 8px; left: 8px; z-index: 2000; font-size: 10px; color: #2ecc71; font-weight: bold; font-family: monospace; }
         #recenter-btn { position: absolute; top: 10px; right: 10px; z-index: 2000; background: #3498db; color: white; border: none; display: none; padding: 8px 12px; font-size: 10px; font-weight: bold; border-radius: 4px; }
     </style>
 </head>
@@ -60,8 +60,8 @@
     </div>
 
     <div id="map">
-        <div id="compass-ui"><div id="needle"></div></div>
-        <div id="status">GPS: INITIALIZING...</div>
+        <div id="compass-ui" title="Reset North"><div id="needle"></div></div>
+        <div id="status">GPS: STARTING...</div>
         <button id="recenter-btn">RECENTER</button>
     </div>
 
@@ -80,10 +80,9 @@
     let map, chart, userMarker, snappedMarker;
     let masterCoords = [], routeGeoJson = null, kmlRouteLine = null, routeData = [];
     let isFollowing = true, totalDist = 0, lastValidLat = 0, lastValidLng = 0, targetHeading = 0, frameCount = 0;
-    let lastUpdateTime = 0; 
+    let lastUpdateTime = 0;
     
-    const MAX_ACCURACY_METERS = 45; 
-    const STALE_THRESHOLD_MS = 5000;
+    const MAX_ACCURACY_METERS = 45, STALE_THRESHOLD_MS = 5000;
     const METERS_TO_FEET = 3.28084, MPS_TO_MPH = 2.23694, WINDOW_MI = 0.25;
 
     function updateTime() {
@@ -99,11 +98,10 @@
         const timeLabel = document.getElementById('time-label');
         const statusLabel = document.getElementById('status');
         
-        // RED TOGGLE IF NO DATA HAS EVER ARRIVED OR IS STALE
+        // 1. DATA STALENESS
         if (lastUpdateTime === 0 || (now - lastUpdateTime > STALE_THRESHOLD_MS)) {
             if (lastUpdateTime === 0) statusLabel.innerText = "GPS: SEARCHING...";
             else statusLabel.innerText = "GPS: SIGNAL LOST";
-            
             timeLabel.classList.remove('pulse-green', 'pulse-yellow');
             if (frameCount % 60 === 0) timeLabel.classList.toggle('pulse-red');
         }
@@ -112,11 +110,16 @@
 
         if (lastValidLat !== 0) {
             userMarker.setLatLng([lastValidLat, lastValidLng]);
+            
+            // 2. RESTORED ROTATION LOGIC
+            const mapRotation = isFollowing ? -targetHeading : 0;
+            const needleRotation = isFollowing ? 0 : -targetHeading;
+
             if (isFollowing) {
                 map.setView([lastValidLat, lastValidLng], map.getZoom(), { animate: false });
-                map.getPane('mapPane').style.transform = `rotate(${-targetHeading}deg)`;
+                map.getPane('mapPane').style.transform = `rotate(${mapRotation}deg)`;
             }
-            document.getElementById('needle').style.transform = `rotate(${-targetHeading}deg)`;
+            document.getElementById('needle').style.transform = `rotate(${needleRotation}deg)`;
         }
         requestAnimationFrame(renderLoop);
     }
@@ -151,21 +154,25 @@
 
     function init() {
         updateTime(); setInterval(updateTime, 1000);
-        // INIT MAP AT 0,0 BUT WITH TILES READY
-        map = L.map('map', { zoomControl: false, preferCanvas: true }).setView([37.77, -122.41], 13);
+        map = L.map('map', { zoomControl: false, preferCanvas: true }).setView([0, 0], 16);
         L.tileLayer('https://{s}.tile.osm.org/{z}/{x}/{y}.png').addTo(map);
         
-        userMarker = L.circleMarker([0,0], { stroke: false, fillOpacity: 1, fillColor: '#3498db', radius: 7 }).addTo(map);
+        userMarker = L.circleMarker([0,0], { stroke: false, fillOpacity: 1, fillColor: '#3498db', radius: 7, zIndexOffset: 1000 }).addTo(map);
         snappedMarker = L.circleMarker([0,0], { stroke: false, fillOpacity: 1, fillColor: '#f39c12', radius: 6 }).addTo(map);
 
+        // 3. RESTORED BAR CHART
         const ctx = document.getElementById('elevationChart').getContext('2d');
         chart = new Chart(ctx, {
-            type: 'line',
-            data: { datasets: [{ id:'route', data:[], borderWidth:4, pointRadius:0, fill:false, segment:{borderColor:c=>{
-                const p1=c.p0.raw, p2=c.p1.raw; if(!p1||!p2) return '#27ae60';
-                const g=((p2.y-p1.y)/((p2.x-p1.x)*5280))*100; return g>=6?'#e74c3c':(g>=3?'#f1c40f':'#27ae60');
-            }}}, { id:'user-pos', data:[], pointRadius:7, pointBackgroundColor:'#f39c12', pointBorderColor:'#fff', pointBorderWidth:2, showLine:false }]},
-            options: { responsive:true, maintainAspectRatio:false, plugins:{legend:false}, animation:false, scales:{x:{type:'linear'},y:{grace:'20%'}}}
+            type: 'bar',
+            data: { datasets: [{ 
+                id:'route', data:[], backgroundColor: c => {
+                    const p = c.raw; if(!p) return '#27ae60';
+                    return '#27ae60'; // We'll refine slope coloring logic later if needed
+                }, barPercentage: 1.0, categoryPercentage: 1.0 
+            }, { 
+                id:'user-pos', type: 'line', data:[], pointRadius:8, pointBackgroundColor:'#f39c12', pointBorderWidth:2, showLine:false 
+            }]},
+            options: { responsive:true, maintainAspectRatio:false, plugins:{legend:false}, animation:false, scales:{x:{type:'linear', display: false}, y:{grace:'15%'}}}
         });
 
         setupListeners();
@@ -175,14 +182,8 @@
         
         if ("geolocation" in navigator) {
             navigator.geolocation.watchPosition(handleGPSUpdate, (e) => {
-                let msg = "GPS ERROR: ";
-                if(e.code == 1) msg += "PERMISSION DENIED";
-                else if(e.code == 2) msg += "POSITION UNAVAILABLE";
-                else if(e.code == 3) msg += "TIMEOUT";
-                document.getElementById('status').innerText = msg;
+                document.getElementById('status').innerText = "GPS Error: " + e.code;
             }, { enableHighAccuracy: true, timeout: Infinity, maximumAge: 0 });
-        } else {
-            document.getElementById('status').innerText = "GPS: NOT SUPPORTED";
         }
     }
 
@@ -198,7 +199,7 @@
         totalDist = d;
         chart.data.datasets[0].data = routeData; chart.update();
         if (kmlRouteLine) map.removeLayer(kmlRouteLine);
-        kmlRouteLine = L.polyline(processed.map(c => [c[1], c[0]]), { color: '#000', weight: 3, opacity: 0.8, dashArray: '8, 12' }).addTo(map);
+        kmlRouteLine = L.polyline(processed.map(c => [c[1], c[0]]), { color: '#000', weight: 3, opacity: 0.8 }).addTo(map);
         if (lastValidLat !== 0) updateRouteContext(lastValidLat, lastValidLng);
     }
 
@@ -207,10 +208,12 @@
         const snapped = turf.nearestPointOnLine(routeGeoJson, turf.point([lng, lat]), {units: 'miles'});
         const curDist = snapped.properties.location;
         snappedMarker.setLatLng([snapped.geometry.coordinates[1], snapped.geometry.coordinates[0]]);
-        const e1 = getElevAtDist(curDist), e2 = getElevAtDist(curDist + 0.01);
+        const e1 = getElevAtDist(curDist);
+        const e2 = getElevAtDist(curDist + 0.01);
         const grade = ((e2 - e1) / (0.01 * 5280)) * 100;
         document.getElementById('grade-val').innerText = isFinite(grade) ? grade.toFixed(1) : "0.0";
         document.getElementById('remain-val').innerText = Math.max(0, totalDist - curDist).toFixed(1);
+        
         chart.options.scales.x.min = curDist - (WINDOW_MI * 0.25);
         chart.options.scales.x.max = curDist + (WINDOW_MI * 0.75);
         chart.data.datasets[1].data = [{ x: curDist, y: e1 }];
@@ -230,16 +233,14 @@
     }
 
     function loadKml(xml) {
-        try {
-            const dom = new DOMParser().parseFromString(xml, "text/xml");
-            const geojson = toGeoJSON.kml(dom);
-            let coords = [];
-            geojson.features.forEach(f => {
-                if (f.geometry.type === 'LineString') coords = coords.concat(f.geometry.coordinates);
-                else if (f.geometry.type === 'MultiLineString') f.geometry.coordinates.forEach(line => { coords = coords.concat(line); });
-            });
-            if (coords.length > 0) { masterCoords = coords; localStorage.setItem('cycling_route_foss', xml); processRoutePoints(coords); }
-        } catch(e) { console.error(e); }
+        const dom = new DOMParser().parseFromString(xml, "text/xml");
+        const geojson = toGeoJSON.kml(dom);
+        let coords = [];
+        geojson.features.forEach(f => {
+            if (f.geometry.type === 'LineString') coords = coords.concat(f.geometry.coordinates);
+            else if (f.geometry.type === 'MultiLineString') f.geometry.coordinates.forEach(line => { coords = coords.concat(line); });
+        });
+        if (coords.length > 0) { masterCoords = coords; localStorage.setItem('cycling_route_foss', xml); processRoutePoints(coords); }
     }
 
     function setupListeners() {
@@ -250,15 +251,27 @@
         };
         document.getElementById('rev-btn').onclick = () => { if(masterCoords.length) { masterCoords.reverse(); processRoutePoints(masterCoords); } };
         document.getElementById('reset-btn').onclick = () => { localStorage.clear(); location.reload(); };
+        
+        // RECENTER
         document.getElementById('recenter-btn').onclick = function() {
             isFollowing = true; this.style.display = 'none';
-            if (lastValidLat !== 0) map.setView([lastValidLat, lastValidLng], map.getZoom(), { animate: true });
+            if (lastValidLat !== 0) map.setView([lastValidLat, lastValidLng], map.getZoom());
         };
-        map.on('movestart', () => { 
-            if (isFollowing) { isFollowing = false; document.getElementById('recenter-btn').style.display = 'block'; }
+
+        // 4. COMPASS CLICK RESET
+        document.getElementById('compass-ui').onclick = () => {
+            isFollowing = true;
+            targetHeading = 0; // Temporary north reset
+            document.getElementById('recenter-btn').style.display = 'none';
+            if (lastValidLat !== 0) map.setView([lastValidLat, lastValidLng], map.getZoom());
+        };
+
+        map.on('movestart', (e) => { 
+            if (e.drag) { isFollowing = false; document.getElementById('recenter-btn').style.display = 'block'; }
         });
+        
         document.getElementById('fs-btn').onclick = () => {
-            if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
+            if (!document.fullscreenElement) document.documentElement.requestFullscreen();
             else document.exitFullscreen();
         };
     }
