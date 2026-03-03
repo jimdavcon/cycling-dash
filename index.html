@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro - Dashed Route Build</title>
+    <title>CycleDash Pro - Rolling Breadcrumbs</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -90,14 +90,15 @@
 </div>
 
 <script>
-    let map, chart, userMarker, snappedMarker;
+    let map, chart, userMarker, snappedMarker, breadcrumbLayer;
     let masterCoords = [], routeGeoJson = null, kmlRouteLine = null, routeData = [];
+    let crumbs = []; // Objects: { latlng: [lat, lng], time: Date.now() }
     let isFollowing = true, isRouteUp = false; 
     let lastValidLat = 0, lastValidLng = 0, targetHeading = 0, totalDist = 0;
-    let lastGpsTick = 0;
-    let flashPhase = false;
+    let lastGpsTick = 0, flashPhase = false;
     
     const METERS_TO_FEET = 3.28084, MPS_TO_MPH = 2.23694, WINDOW_MI = 1.0;
+    const FIVE_MINUTES = 300000;
     const fmt = (val, dec = 0) => (val === null || isNaN(val) || val === undefined) ? "---" : Number(val).toFixed(dec);
 
     function updateTimeAndHeartbeat() {
@@ -135,11 +136,21 @@
     }
 
     function handleGPSUpdate(pos) {
-        lastGpsTick = Date.now();
+        const now = Date.now();
+        lastGpsTick = now;
         const { latitude, longitude, speed, altitude, accuracy } = pos.coords;
         lastValidLat = latitude; lastValidLng = longitude;
         document.getElementById('accuracy-box').innerText = `GPS: ±${Math.round(accuracy * METERS_TO_FEET)}ft`;
         
+        // Rolling Breadcrumb Logic
+        crumbs.push({ latlng: [latitude, longitude], time: now });
+        crumbs = crumbs.filter(c => now - c.time < FIVE_MINUTES);
+        
+        breadcrumbLayer.clearLayers();
+        crumbs.forEach(c => {
+            L.circleMarker(c.latlng, { radius: 3, color: '#3498db', fillOpacity: 0.6, stroke: false }).addTo(breadcrumbLayer);
+        });
+
         if (accuracy > 50) return;
         document.getElementById('speed-val').innerText = fmt(speed * MPS_TO_MPH, 1);
         document.getElementById('elev-val').innerText = fmt(altitude * METERS_TO_FEET, 0);
@@ -152,6 +163,9 @@
 
         map = L.map('map', { zoomControl: false, preferCanvas: true, attributionControl: false }).setView([0,0], 17);
         L.tileLayer('https://{s}.tile.osm.org/{z}/{x}/{y}.png').addTo(map);
+        
+        breadcrumbLayer = L.layerGroup().addTo(map);
+        
         userMarker = L.circleMarker([0,0], { stroke: true, color: '#fff', weight: 2, fillOpacity: 1, fillColor: '#3498db', radius: 8, zIndexOffset: 1000 }).addTo(map);
         snappedMarker = L.circleMarker([0,0], { stroke: false, fillOpacity: 1, fillColor: '#f39c12', radius: 6 }).addTo(map);
 
@@ -194,16 +208,8 @@
         chart.data.datasets[0].data = routeData;
         chart.data.datasets[0].backgroundColor = colors;
         chart.update();
-        
         if (kmlRouteLine) map.removeLayer(kmlRouteLine);
-        
-        // RESTORED: DASHED BLACK LINE
-        kmlRouteLine = L.polyline(processed.map(c => [c[1], c[0]]), { 
-            color: '#000', 
-            weight: 4, 
-            opacity: 0.6,
-            dashArray: '10, 10' 
-        }).addTo(map);
+        kmlRouteLine = L.polyline(processed.map(c => [c[1], c[0]]), { color: '#000', weight: 4, opacity: 0.6, dashArray: '10, 10' }).addTo(map);
     }
 
     function updateRouteContext(lat, lng) {
@@ -257,7 +263,7 @@
             reader.readAsText(e.target.files[0]);
         };
         document.getElementById('rev-btn').onclick = () => { if(masterCoords.length) { masterCoords.reverse(); processRoutePoints(masterCoords); } };
-        document.getElementById('reset-btn').onclick = () => { localStorage.clear(); location.reload(); };
+        document.getElementById('reset-btn').onclick = () => { localStorage.clear(); location.reload(); crumbs = []; breadcrumbLayer.clearLayers(); };
         document.getElementById('recenter-btn').onclick = () => { isFollowing = true; document.getElementById('recenter-btn').style.display = 'none'; };
         document.getElementById('compass-ui').onclick = () => { isRouteUp = !isRouteUp; };
         map.on('dragstart', () => { isFollowing = false; document.getElementById('recenter-btn').style.display = 'block'; });
