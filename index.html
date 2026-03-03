@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro - Full Rotation</title>
+    <title>CycleDash Pro - Nav View</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -16,38 +16,31 @@
         body, html { margin: 0; padding: 0; height: 100svh; width: 100%; overflow: hidden; background: #1a1a1a; font-family: -apple-system, system-ui, sans-serif; }
         #container { display: flex; flex-direction: column; height: 100svh; width: 100vw; position: relative; }
         
-        /* HUD and Tray stay pinned to screen */
         #hud-header { background: #222; color: white; padding-top: var(--sat); display: grid; grid-template-columns: 1fr 1.1fr 1fr; border-bottom: 1px solid #444; flex-shrink: 0; z-index: 2000; height: 60px; }
         #bottom-tray { display: flex; height: 140px; background: #fff; border-top: 2px solid #333; padding-bottom: var(--sab); flex-shrink: 0; width: 100%; z-index: 2000; }
         
-        /* THE MAP VIEWPORT (The "Window") */
         #map-viewport { 
             flex: 1; 
             position: relative; 
-            overflow: hidden; /* Clips the oversized map */
+            overflow: hidden; 
             background: #111;
             z-index: 1;
         }
 
-        /* THE ACTUAL MAP (The "Oversized Canvas") */
         #map { 
             position: absolute;
-            top: -25%; /* Shift up to center the 150% height */
-            left: -25%; /* Shift left to center the 150% width */
-            width: 150%; 
-            height: 150%; 
+            top: -50%; 
+            left: -50%; 
+            width: 200%; 
+            height: 200%; 
             transition: transform 0.1s linear; 
             will-change: transform;
         }
 
-        /* HUD Sub-elements */
         .hud-column { display: flex; flex-direction: column; padding: 0px 10px; justify-content: center; }
         .data-row { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #333; padding: 0px 0; line-height: 1.2; }
         .label { font-size: 9px; font-weight: bold; color: #888; text-transform: uppercase; }
         .val-text { font-size: 17px; font-weight: bold; font-family: monospace; color: #fff; }
-        .pulse-green { color: #2ecc71 !important; } 
-        .pulse-yellow { color: #f1c40f !important; }
-        .pulse-red { color: #e74c3c !important; }
 
         #compass-ui { position: absolute; top: 10px; left: 10px; z-index: 3000; width: 44px; height: 44px; background: rgba(0,0,0,0.7); border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid #fff; cursor: pointer; }
         #needle { width: 3px; height: 30px; background: #e74c3c; position: relative; }
@@ -97,7 +90,7 @@
 
     let map, chart, userMarker, snappedMarker;
     let masterCoords = [], routeGeoJson = null, kmlRouteLine = null, routeData = [];
-    let isFollowing = true, isCourseUp = true, lastValidLat = 0, lastValidLng = 0, targetHeading = 0, currentRotation = 0, frameCount = 0;
+    let isFollowing = true, isCourseUp = true, lastValidLat = 0, lastValidLng = 0, targetHeading = 0, currentRotation = 0;
     let lastUpdateTime = 0;
     
     const DEFAULT_ZOOM = 16;
@@ -110,29 +103,36 @@
     }
 
     function renderLoop() {
-        frameCount++;
         const now = Date.now();
-        if (now - lastUpdateTime > 5000) { document.getElementById('status').innerText = "GPS: LOST SIGNAL"; }
-
         if (lastValidLat !== 0) {
             userMarker.setLatLng([lastValidLat, lastValidLng]);
             
-            // Smoothing for Bearing
+            // Rotation Smoothing
             let diff = targetHeading - currentRotation;
             while (diff < -180) diff += 360; while (diff > 180) diff -= 360;
             currentRotation += diff * 0.1; 
 
             const rotationAngle = isCourseUp ? -currentRotation : 0;
-            
-            // APPLY ROTATION TO THE ENTIRE MAP ELEMENT
             const mapEl = document.getElementById('map');
+            
+            // Map Pivot Logic
+            // We want the user at 1/3 from the bottom. 
+            // In a viewport-relative context, that's roughly a 16.6% vertical offset from the center.
+            const verticalOffsetPercent = isCourseUp ? 16.6 : 0; 
+            mapEl.style.transformOrigin = `50% ${50 + verticalOffsetPercent}%`;
             mapEl.style.transform = `rotate(${rotationAngle}deg)`;
             
-            // Update Compass Needle (Counter-rotate)
             document.getElementById('needle').style.transform = `rotate(${-currentRotation}deg)`;
             document.getElementById('heading-val').innerText = Math.round((currentRotation + 360) % 360) + "°";
 
-            if (isFollowing) { map.panTo([lastValidLat, lastValidLng], { animate: false }); }
+            if (isFollowing) {
+                // To keep marker at 1/3 height, we pan the map so the user coordinates 
+                // are offset by 1/6th of the map's pixel height.
+                const mapHeight = map.getSize().y;
+                const offsetPx = isCourseUp ? (mapHeight / 6) : 0;
+                map.setView([lastValidLat, lastValidLng], map.getZoom(), { animate: false });
+                map.panBy([0, -offsetPx], { animate: false });
+            }
         }
         requestAnimationFrame(renderLoop);
     }
@@ -151,10 +151,7 @@
     function init() {
         updateTime(); setInterval(updateTime, 1000);
         map = L.map('map', { zoomControl: false, preferCanvas: true, doubleClickZoom: false }).setView([0, 0], DEFAULT_ZOOM);
-        
         L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', { crossOrigin: true }).addTo(map);
-        
-        // Ensure Leaflet recognizes the full size of the oversized div
         map.invalidateSize();
 
         userMarker = L.circleMarker([0,0], { stroke: true, color: '#fff', weight: 2, fillOpacity: 1, fillColor: '#3498db', radius: 7, zIndexOffset: 1000 }).addTo(map);
@@ -242,7 +239,7 @@
         };
         document.getElementById('rev-btn').onclick = () => { if(masterCoords.length) { masterCoords.reverse(); processRoutePoints(masterCoords); } };
         document.getElementById('reset-btn').onclick = () => { localStorage.clear(); location.reload(); };
-        document.getElementById('recenter-btn').onclick = function() { isFollowing = true; this.style.display = 'none'; map.panTo([lastValidLat, lastValidLng], { animate: true }); };
+        document.getElementById('recenter-btn').onclick = function() { isFollowing = true; this.style.display = 'none'; };
         map.on('dblclick', () => map.setZoom(DEFAULT_ZOOM));
         document.getElementById('compass-ui').onclick = function() { isCourseUp = !isCourseUp; this.style.borderColor = isCourseUp ? '#fff' : '#444'; };
         map.on('dragstart zoomstart', () => { if (isFollowing) { isFollowing = false; document.getElementById('recenter-btn').style.display = 'block'; } });
