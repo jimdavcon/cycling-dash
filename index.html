@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro - Cached</title>
+    <title>CycleDash Pro - Full Rotation</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -14,8 +14,33 @@
     <style>
         :root { --sat: env(safe-area-inset-top, 0px); --sab: env(safe-area-inset-bottom, 0px); }
         body, html { margin: 0; padding: 0; height: 100svh; width: 100%; overflow: hidden; background: #1a1a1a; font-family: -apple-system, system-ui, sans-serif; }
-        #container { display: flex; flex-direction: column; height: 100svh; width: 100vw; }
-        #hud-header { background: #222; color: white; padding-top: var(--sat); display: grid; grid-template-columns: 1fr 1.1fr 1fr; border-bottom: 1px solid #444; flex-shrink: 0; z-index: 1000; height: 60px; }
+        #container { display: flex; flex-direction: column; height: 100svh; width: 100vw; position: relative; }
+        
+        /* HUD and Tray stay pinned to screen */
+        #hud-header { background: #222; color: white; padding-top: var(--sat); display: grid; grid-template-columns: 1fr 1.1fr 1fr; border-bottom: 1px solid #444; flex-shrink: 0; z-index: 2000; height: 60px; }
+        #bottom-tray { display: flex; height: 140px; background: #fff; border-top: 2px solid #333; padding-bottom: var(--sab); flex-shrink: 0; width: 100%; z-index: 2000; }
+        
+        /* THE MAP VIEWPORT (The "Window") */
+        #map-viewport { 
+            flex: 1; 
+            position: relative; 
+            overflow: hidden; /* Clips the oversized map */
+            background: #111;
+            z-index: 1;
+        }
+
+        /* THE ACTUAL MAP (The "Oversized Canvas") */
+        #map { 
+            position: absolute;
+            top: -25%; /* Shift up to center the 150% height */
+            left: -25%; /* Shift left to center the 150% width */
+            width: 150%; 
+            height: 150%; 
+            transition: transform 0.1s linear; 
+            will-change: transform;
+        }
+
+        /* HUD Sub-elements */
         .hud-column { display: flex; flex-direction: column; padding: 0px 10px; justify-content: center; }
         .data-row { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #333; padding: 0px 0; line-height: 1.2; }
         .label { font-size: 9px; font-weight: bold; color: #888; text-transform: uppercase; }
@@ -23,37 +48,29 @@
         .pulse-green { color: #2ecc71 !important; } 
         .pulse-yellow { color: #f1c40f !important; }
         .pulse-red { color: #e74c3c !important; }
-        #map { flex: 1; background: #111; position: relative; width: 100%; z-index: 1; overflow: hidden; }
-        #compass-ui { position: absolute; top: 10px; left: 10px; z-index: 2000; width: 44px; height: 44px; background: rgba(0,0,0,0.7); border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid #fff; cursor: pointer; }
-        #needle { width: 3px; height: 30px; background: #e74c3c; position: relative; transition: transform 0.1s linear; }
+
+        #compass-ui { position: absolute; top: 10px; left: 10px; z-index: 3000; width: 44px; height: 44px; background: rgba(0,0,0,0.7); border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid #fff; cursor: pointer; }
+        #needle { width: 3px; height: 30px; background: #e74c3c; position: relative; }
         #needle::after { content: ''; position: absolute; bottom: 0; left: 0; width: 3px; height: 50%; background: #fff; }
-        #bottom-tray { display: flex; height: 140px; background: #fff; border-top: 2px solid #333; padding-bottom: var(--sab); flex-shrink: 0; width: 100%; z-index: 1000; }
+
         #chart-section { flex: 1; min-width: 0; position: relative; padding: 5px; }
         #action-section { flex: 0 0 90px; display: flex; flex-direction: column; justify-content: space-evenly; align-items: center; background: #ececec; border-left: 1px solid #ccc; }
         .action-btn { font-size: 9px; cursor: pointer; text-align: center; width: 80px; padding: 8px 0; background: #fff; border: 1px solid #999; border-radius: 4px; font-weight: bold; color: #333; }
-        #status { position: absolute; bottom: 8px; left: 8px; z-index: 2000; font-size: 10px; color: #2ecc71; font-weight: bold; font-family: monospace; }
-        #recenter-btn { position: absolute; top: 10px; right: 10px; z-index: 2000; background: #3498db; color: white; border: none; display: none; padding: 10px 15px; font-size: 11px; font-weight: bold; border-radius: 4px; cursor: pointer; box-shadow: 0 2px 5px rgba(0,0,0,0.3); }
+        #status { position: absolute; bottom: 8px; left: 8px; z-index: 3000; font-size: 10px; color: #2ecc71; font-weight: bold; font-family: monospace; }
+        #recenter-btn { position: absolute; top: 10px; right: 10px; z-index: 3000; background: #3498db; color: white; border: none; display: none; padding: 10px 15px; font-size: 11px; font-weight: bold; border-radius: 4px; box-shadow: 0 2px 5px rgba(0,0,0,0.3); }
     </style>
 </head>
 <body>
 
 <div id="container">
     <div id="hud-header">
-        <div class="hud-column">
-            <div class="data-row"><span class="label">MPH</span><span class="val-text" id="speed-val">0.0</span></div>
-            <div class="data-row"><span class="label">REM</span><span class="val-text" id="remain-val">---</span></div>
-        </div>
-        <div class="hud-column">
-            <div class="data-row"><span class="label" id="time-label">TIME</span><span class="val-text" id="time-val">--:--</span></div>
-            <div class="data-row"><span class="label">HDG</span><span class="val-text" id="heading-val">0°</span></div>
-        </div>
-        <div class="hud-column">
-            <div class="data-row"><span class="label">ELV</span><span class="val-text" id="elev-val">---</span></div>
-            <div class="data-row"><span class="label">GRD</span><span class="val-text" id="grade-val">---</span></div>
-        </div>
+        <div class="hud-column"><div class="data-row"><span class="label">MPH</span><span class="val-text" id="speed-val">0.0</span></div><div class="data-row"><span class="label">REM</span><span class="val-text" id="remain-val">---</span></div></div>
+        <div class="hud-column"><div class="data-row"><span class="label">TIME</span><span class="val-text" id="time-val">--:--</span></div><div class="data-row"><span class="label">HDG</span><span class="val-text" id="heading-val">0°</span></div></div>
+        <div class="hud-column"><div class="data-row"><span class="label">ELV</span><span class="val-text" id="elev-val">---</span></div><div class="data-row"><span class="label">GRD</span><span class="val-text" id="grade-val">---</span></div></div>
     </div>
 
-    <div id="map">
+    <div id="map-viewport">
+        <div id="map"></div>
         <div id="compass-ui"><div id="needle"></div></div>
         <div id="status">GPS: WAITING...</div>
         <button id="recenter-btn">RECENTER</button>
@@ -73,73 +90,49 @@
 <script>
     // --- SERVICE WORKER REGISTRATION (OFFLINE CACHE) ---
     if ('serviceWorker' in navigator) {
-        const swCode = `
-            const CACHE_NAME = 'cycledash-tiles-v1';
-            self.addEventListener('fetch', (event) => {
-                if (event.request.url.includes('tile.openstreetmap.fr')) {
-                    event.respondWith(
-                        caches.match(event.request).then((response) => {
-                            return response || fetch(event.request).then((fetchRes) => {
-                                return caches.open(CACHE_NAME).then((cache) => {
-                                    cache.put(event.request, fetchRes.clone());
-                                    return fetchRes;
-                                });
-                            });
-                        })
-                    );
-                }
-            });
-        `;
+        const swCode = `const CACHE_NAME = 'cycledash-tiles-v1'; self.addEventListener('fetch', (e) => { if (e.request.url.includes('tile.openstreetmap.fr')) { e.respondWith(caches.match(e.request).then((res) => res || fetch(e.request).then((fRes) => caches.open(CACHE_NAME).then((c) => { c.put(e.request, fRes.clone()); return fRes; })))); } });`;
         const blob = new Blob([swCode], { type: 'text/javascript' });
         navigator.serviceWorker.register(URL.createObjectURL(blob));
     }
 
     let map, chart, userMarker, snappedMarker;
     let masterCoords = [], routeGeoJson = null, kmlRouteLine = null, routeData = [];
-    let breadcrumbs = []; 
-    let isFollowing = true, isCourseUp = true, totalDist = 0, lastValidLat = 0, lastValidLng = 0, targetHeading = 0, currentRotation = 0, frameCount = 0;
+    let isFollowing = true, isCourseUp = true, lastValidLat = 0, lastValidLng = 0, targetHeading = 0, currentRotation = 0, frameCount = 0;
     let lastUpdateTime = 0;
     
     const DEFAULT_ZOOM = 16;
     const METERS_TO_FEET = 3.28084, MPS_TO_MPH = 2.23694, WINDOW_MI = 0.25;
 
     function updateTime() {
-        const now = new Date();
-        let h = now.getHours();
-        const m = now.getMinutes().toString().padStart(2, '0');
-        const x = h >= 12 ? 'p' : 'a';
-        h = h % 12 || 12;
+        const now = new Date(); let h = now.getHours(); const m = now.getMinutes().toString().padStart(2, '0');
+        const x = h >= 12 ? 'p' : 'a'; h = h % 12 || 12;
         document.getElementById('time-val').innerText = `${h}:${m}${x}`;
     }
 
     function renderLoop() {
         frameCount++;
         const now = Date.now();
-        const statusLabel = document.getElementById('status');
-        const timeVal = document.getElementById('time-val');
-
-        if (now - lastUpdateTime > 5000) {
-            statusLabel.innerText = "GPS: LOST SIGNAL";
-            if (frameCount % 60 === 0) timeVal.classList.toggle('pulse-red');
-        }
-
-        while (breadcrumbs.length > 0 && (now - breadcrumbs[0].timestamp) > 300000) {
-            const old = breadcrumbs.shift();
-            map.removeLayer(old.marker);
-        }
+        if (now - lastUpdateTime > 5000) { document.getElementById('status').innerText = "GPS: LOST SIGNAL"; }
 
         if (lastValidLat !== 0) {
             userMarker.setLatLng([lastValidLat, lastValidLng]);
+            
+            // Smoothing for Bearing
             let diff = targetHeading - currentRotation;
-            while (diff < -180) diff += 360;
-            while (diff > 180) diff -= 360;
+            while (diff < -180) diff += 360; while (diff > 180) diff -= 360;
             currentRotation += diff * 0.1; 
+
             const rotationAngle = isCourseUp ? -currentRotation : 0;
-            const mapContainer = map.getContainer().querySelector('.leaflet-proxy').parentElement;
-            if (isFollowing) map.panTo([lastValidLat, lastValidLng], { animate: false });
-            mapContainer.style.transform = `rotate(${rotationAngle}deg)`;
+            
+            // APPLY ROTATION TO THE ENTIRE MAP ELEMENT
+            const mapEl = document.getElementById('map');
+            mapEl.style.transform = `rotate(${rotationAngle}deg)`;
+            
+            // Update Compass Needle (Counter-rotate)
             document.getElementById('needle').style.transform = `rotate(${-currentRotation}deg)`;
             document.getElementById('heading-val').innerText = Math.round((currentRotation + 360) % 360) + "°";
+
+            if (isFollowing) { map.panTo([lastValidLat, lastValidLng], { animate: false }); }
         }
         requestAnimationFrame(renderLoop);
     }
@@ -147,13 +140,7 @@
     function handleGPSUpdate(pos) {
         lastUpdateTime = Date.now();
         const { latitude, longitude, speed, altitude, heading, accuracy } = pos.coords;
-        const timeVal = document.getElementById('time-val');
-        if (accuracy < 45) {
-            timeVal.className = 'val-text pulse-green';
-            document.getElementById('status').innerText = `GPS: ±${Math.round(accuracy * METERS_TO_FEET)}FT`;
-            const bMarker = L.circleMarker([latitude, longitude], { radius: 3, fillColor: '#3498db', fillOpacity: 0.4, stroke: false }).addTo(map);
-            breadcrumbs.push({ marker: bMarker, timestamp: Date.now() });
-        } else { timeVal.className = 'val-text pulse-yellow'; }
+        document.getElementById('status').innerText = `GPS: ±${Math.round(accuracy * METERS_TO_FEET)}FT`;
         lastValidLat = latitude; lastValidLng = longitude;
         if (!routeGeoJson && heading !== null) targetHeading = heading;
         document.getElementById('speed-val').innerText = speed ? (speed * MPS_TO_MPH).toFixed(1) : "0.0";
@@ -165,20 +152,21 @@
         updateTime(); setInterval(updateTime, 1000);
         map = L.map('map', { zoomControl: false, preferCanvas: true, doubleClickZoom: false }).setView([0, 0], DEFAULT_ZOOM);
         
-        // ADDED crossOrigin: true to allow Service Worker caching
-        L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
-            crossOrigin: true,
-            keepBuffer: 8 // Keeps 8 tiles beyond the view for smoother panning
-        }).addTo(map);
+        L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', { crossOrigin: true }).addTo(map);
         
+        // Ensure Leaflet recognizes the full size of the oversized div
+        map.invalidateSize();
+
         userMarker = L.circleMarker([0,0], { stroke: true, color: '#fff', weight: 2, fillOpacity: 1, fillColor: '#3498db', radius: 7, zIndexOffset: 1000 }).addTo(map);
         snappedMarker = L.circleMarker([0,0], { stroke: false, fillOpacity: 1, fillColor: '#f39c12', radius: 6 }).addTo(map);
+
         const ctx = document.getElementById('elevationChart').getContext('2d');
         chart = new Chart(ctx, {
             type: 'line',
-            data: { datasets: [{ id: 'route', data: [], fill: 'origin', stepped: 'before', pointRadius: 0, borderWidth: 2, segment: { borderColor: ctx => getSegmentColor(ctx), backgroundColor: ctx => getSegmentColor(ctx) + '88' }}, { id: 'user-pos', data: [], pointRadius: 7, pointBackgroundColor: '#f39c12', pointBorderColor: '#fff', pointBorderWidth: 2, showLine: false }]},
+            data: { datasets: [{ id: 'route', data: [], fill: 'origin', stepped: 'before', pointRadius: 0, borderWidth: 2, segment: { borderColor: c => getSegCol(c), backgroundColor: c => getSegCol(c) + '88' }}, { id: 'user-pos', data: [], pointRadius: 7, pointBackgroundColor: '#f39c12', pointBorderColor: '#fff', pointBorderWidth: 2, showLine: false }]},
             options: { responsive: true, maintainAspectRatio: false, plugins: { legend: false }, animation: false, scales: { x: { type: 'linear' }, y: { grace: '10%' }}}
         });
+
         setupListeners();
         const saved = localStorage.getItem('cycling_route_foss');
         if (saved) loadKml(saved);
@@ -186,7 +174,7 @@
         navigator.geolocation.watchPosition(handleGPSUpdate, null, { enableHighAccuracy: true });
     }
 
-    function getSegmentColor(ctx) {
+    function getSegCol(ctx) {
         const p1 = ctx.p0.raw; const p2 = ctx.p1.raw;
         if (!p1 || !p2) return '#27ae60';
         const grade = ((p2.y - p1.y) / ((p2.x - p1.x) * 5280)) * 100;
@@ -215,9 +203,7 @@
         const lookAheadDist = Math.min(totalDist, curDist + 0.02);
         const pointAhead = turf.along(routeGeoJson, lookAheadDist, {units: 'miles'});
         targetHeading = turf.bearing(turf.point(snapped.geometry.coordinates), turf.point(pointAhead.geometry.coordinates));
-        const e1 = getElevAtDist(curDist), e2 = getElevAtDist(curDist + 0.01);
-        const grade = ((e2 - e1) / (0.01 * 5280)) * 100;
-        document.getElementById('grade-val').innerText = isFinite(grade) ? grade.toFixed(1) : "0.0";
+        const e1 = getElevAtDist(curDist);
         document.getElementById('remain-val').innerText = Math.max(0, totalDist - curDist).toFixed(1);
         chart.options.scales.x.min = curDist - (WINDOW_MI * 0.25);
         chart.options.scales.x.max = curDist + (WINDOW_MI * 0.75);
@@ -252,17 +238,15 @@
 
     function setupListeners() {
         document.getElementById('route-upload').onchange = (e) => {
-            const reader = new FileReader();
-            reader.onload = (ev) => loadKml(ev.target.result);
-            reader.readAsText(e.target.files[0]);
+            const r = new FileReader(); r.onload = (ev) => loadKml(ev.target.result); r.readAsText(e.target.files[0]);
         };
         document.getElementById('rev-btn').onclick = () => { if(masterCoords.length) { masterCoords.reverse(); processRoutePoints(masterCoords); } };
         document.getElementById('reset-btn').onclick = () => { localStorage.clear(); location.reload(); };
-        document.getElementById('recenter-btn').onclick = function() { isFollowing = true; this.style.display = 'none'; if (lastValidLat !== 0) map.panTo([lastValidLat, lastValidLng], { animate: true }); };
-        map.on('dblclick', () => { map.setZoom(DEFAULT_ZOOM); });
-        document.getElementById('compass-ui').onclick = function() { isCourseUp = !isCourseUp; this.style.borderColor = isCourseUp ? '#fff' : '#444'; if (!isCourseUp) { const mapContainer = map.getContainer().querySelector('.leaflet-proxy').parentElement; mapContainer.style.transform = `rotate(0deg)`; } };
+        document.getElementById('recenter-btn').onclick = function() { isFollowing = true; this.style.display = 'none'; map.panTo([lastValidLat, lastValidLng], { animate: true }); };
+        map.on('dblclick', () => map.setZoom(DEFAULT_ZOOM));
+        document.getElementById('compass-ui').onclick = function() { isCourseUp = !isCourseUp; this.style.borderColor = isCourseUp ? '#fff' : '#444'; };
         map.on('dragstart zoomstart', () => { if (isFollowing) { isFollowing = false; document.getElementById('recenter-btn').style.display = 'block'; } });
-        document.getElementById('fs-btn').onclick = () => { if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {}); else document.exitFullscreen(); };
+        document.getElementById('fs-btn').onclick = () => { if (!document.fullscreenElement) document.documentElement.requestFullscreen(); else document.exitFullscreen(); };
     }
     window.onload = init;
 </script>
