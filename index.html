@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro - Dashed Route</title>
+    <title>CycleDash Pro - Recovery Build</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -14,53 +14,54 @@
     <style>
         :root { --sat: env(safe-area-inset-top, 0px); --sab: env(safe-area-inset-bottom, 0px); }
         body, html { margin: 0; padding: 0; height: 100svh; width: 100%; overflow: hidden; background: #1a1a1a; font-family: -apple-system, system-ui, sans-serif; }
-        #container { display: flex; flex-direction: column; height: 100svh; width: 100vw; position: relative; }
+        #container { display: flex; flex-direction: column; height: 100svh; width: 100vw; }
         
-        #hud-header { background: #222; color: white; padding-top: var(--sat); display: grid; grid-template-columns: 1fr 1.1fr 1fr; border-bottom: 1px solid #444; flex-shrink: 0; z-index: 2000; height: 60px; }
-        #bottom-tray { display: flex; height: 140px; background: #fff; border-top: 2px solid #333; padding-bottom: var(--sab); flex-shrink: 0; width: 100%; z-index: 2000; }
-        
-        #map-viewport { flex: 1; position: relative; overflow: hidden; background: #111; z-index: 1; }
-
-        /* 300% Overscan for offset rotation coverage */
-        #map { 
-            position: absolute;
-            top: -100%; 
-            left: -100%; 
-            width: 300%; 
-            height: 300%; 
-            transition: transform 0.1s linear; 
-            will-change: transform;
-        }
-
+        #hud-header { background: #222; color: white; padding-top: var(--sat); display: grid; grid-template-columns: 1fr 1.1fr 1fr; border-bottom: 1px solid #444; flex-shrink: 0; z-index: 1000; height: 60px; }
         .hud-column { display: flex; flex-direction: column; padding: 0px 10px; justify-content: center; }
-        .data-row { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #333; line-height: 1.2; }
+        .data-row { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #333; padding: 0px 0; line-height: 1.2; }
         .label { font-size: 9px; font-weight: bold; color: #888; text-transform: uppercase; }
         .val-text { font-size: 17px; font-weight: bold; font-family: monospace; color: #fff; }
 
-        #compass-ui { position: absolute; top: 10px; left: 10px; z-index: 3000; width: 44px; height: 44px; background: rgba(0,0,0,0.7); border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid #fff; cursor: pointer; }
-        #needle { width: 3px; height: 30px; background: #e74c3c; position: relative; }
-        #needle::after { content: ''; position: absolute; bottom: 0; left: 0; width: 3px; height: 50%; background: #fff; }
+        .pulse-green { color: #2ecc71 !important; } 
+        .pulse-yellow { color: #f1c40f !important; }
+        .pulse-red { color: #e74c3c !important; }
+        .active-shadow { text-shadow: 0 0 10px rgba(46, 204, 113, 1); color: #fff !important; }
 
+        #map { flex: 1; background: #111; position: relative; width: 100%; z-index: 1; }
+        #compass-ui { position: absolute; top: 10px; left: 10px; z-index: 2000; width: 34px; height: 34px; background: rgba(0,0,0,0.6); border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid #555; pointer-events: none; }
+        #needle { width: 2px; height: 24px; background: #e74c3c; position: relative; }
+        #needle::after { content: ''; position: absolute; bottom: 0; left: 0; width: 2px; height: 50%; background: #fff; }
+
+        #bottom-tray { display: flex; height: 140px; background: #fff; border-top: 2px solid #333; padding-bottom: var(--sab); flex-shrink: 0; width: 100%; z-index: 1000; }
         #chart-section { flex: 1; min-width: 0; position: relative; padding: 5px; }
         #action-section { flex: 0 0 90px; display: flex; flex-direction: column; justify-content: space-evenly; align-items: center; background: #ececec; border-left: 1px solid #ccc; }
+        
         .action-btn { font-size: 9px; cursor: pointer; text-align: center; width: 80px; padding: 8px 0; background: #fff; border: 1px solid #999; border-radius: 4px; font-weight: bold; color: #333; }
-        #status { position: absolute; bottom: 8px; left: 8px; z-index: 3000; font-size: 10px; color: #2ecc71; font-weight: bold; font-family: monospace; }
-        #recenter-btn { position: absolute; top: 10px; right: 10px; z-index: 3000; background: #3498db; color: white; border: none; display: none; padding: 10px 15px; font-size: 11px; font-weight: bold; border-radius: 4px; }
+        #status { position: absolute; bottom: 8px; left: 8px; z-index: 2000; font-size: 10px; color: #e74c3c; font-weight: bold; font-family: monospace; }
+        #recenter-btn { position: absolute; top: 10px; right: 10px; z-index: 2000; background: #3498db; color: white; border: none; display: none; padding: 8px 12px; font-size: 10px; font-weight: bold; border-radius: 4px; }
     </style>
 </head>
 <body>
 
 <div id="container">
     <div id="hud-header">
-        <div class="hud-column"><div class="data-row"><span class="label">MPH</span><span class="val-text" id="speed-val">0.0</span></div><div class="data-row"><span class="label">REM</span><span class="val-text" id="remain-val">---</span></div></div>
-        <div class="hud-column"><div class="data-row"><span class="label">TIME</span><span class="val-text" id="time-val">--:--</span></div><div class="data-row"><span class="label">HDG</span><span class="val-text" id="heading-val">0°</span></div></div>
-        <div class="hud-column"><div class="data-row"><span class="label">ELV</span><span class="val-text" id="elev-val">---</span></div><div class="data-row"><span class="label">GRD</span><span class="val-text" id="grade-val">---</span></div></div>
+        <div class="hud-column">
+            <div class="data-row"><span class="label">MPH</span><span class="val-text" id="speed-val">0.0</span></div>
+            <div class="data-row"><span class="label">REM</span><span class="val-text" id="remain-val">---</span></div>
+        </div>
+        <div class="hud-column">
+            <div class="data-row"><span class="label" id="time-label">TIME</span><span class="val-text" id="time-val">--:--</span></div>
+            <div class="data-row"><span class="label">HDG</span><span class="val-text" id="heading-val">0°</span></div>
+        </div>
+        <div class="hud-column">
+            <div class="data-row"><span class="label">ELV</span><span class="val-text" id="elev-val">---</span></div>
+            <div class="data-row"><span class="label">GRD</span><span class="val-text" id="grade-val">---</span></div>
+        </div>
     </div>
 
-    <div id="map-viewport">
-        <div id="map"></div>
+    <div id="map">
         <div id="compass-ui"><div id="needle"></div></div>
-        <div id="status">GPS: WAITING...</div>
+        <div id="status">GPS: INITIALIZING...</div>
         <button id="recenter-btn">RECENTER</button>
     </div>
 
@@ -78,53 +79,190 @@
 <script>
     let map, chart, userMarker, snappedMarker;
     let masterCoords = [], routeGeoJson = null, kmlRouteLine = null, routeData = [];
-    let isFollowing = true, isCourseUp = true, lastLat = 0, lastLng = 0, routeBearing = 0, currentRotation = 0;
+    let isFollowing = true, totalDist = 0, lastValidLat = 0, lastValidLng = 0, targetHeading = 0, frameCount = 0;
+    let lastUpdateTime = 0; 
     
+    const MAX_ACCURACY_METERS = 45; 
+    const STALE_THRESHOLD_MS = 5000;
     const METERS_TO_FEET = 3.28084, MPS_TO_MPH = 2.23694, WINDOW_MI = 0.25;
 
+    function updateTime() {
+        const now = new Date();
+        let h = now.getHours(), m = now.getMinutes().toString().padStart(2, '0'), x = h >= 12 ? 'p' : 'a';
+        h = h % 12 || 12;
+        document.getElementById('time-val').innerText = `${h}:${m}${x}`;
+    }
+
     function renderLoop() {
-        if (lastLat !== 0) {
-            userMarker.setLatLng([lastLat, lastLng]);
-            const target = isCourseUp ? routeBearing : 0;
-            let diff = target - currentRotation;
-            while (diff < -180) diff += 360; while (diff > 180) diff -= 360;
-            currentRotation += diff * 0.1; 
-
-            const mapEl = document.getElementById('map');
-            const pivotY = isCourseUp ? 55.555 : 50; 
-            mapEl.style.transformOrigin = `50% ${pivotY}%`;
-            mapEl.style.transform = `rotate(${-currentRotation}deg)`;
+        frameCount++;
+        const now = Date.now();
+        const timeLabel = document.getElementById('time-label');
+        const statusLabel = document.getElementById('status');
+        
+        // RED TOGGLE IF NO DATA HAS EVER ARRIVED OR IS STALE
+        if (lastUpdateTime === 0 || (now - lastUpdateTime > STALE_THRESHOLD_MS)) {
+            if (lastUpdateTime === 0) statusLabel.innerText = "GPS: SEARCHING...";
+            else statusLabel.innerText = "GPS: SIGNAL LOST";
             
-            document.getElementById('needle').style.transform = `rotate(${routeBearing - currentRotation}deg)`;
-            document.getElementById('heading-val').innerText = Math.round((routeBearing + 360) % 360) + "°";
+            timeLabel.classList.remove('pulse-green', 'pulse-yellow');
+            if (frameCount % 60 === 0) timeLabel.classList.toggle('pulse-red');
+        }
 
+        if (frameCount % 30 === 0) statusLabel.classList.toggle('active-shadow');
+
+        if (lastValidLat !== 0) {
+            userMarker.setLatLng([lastValidLat, lastValidLng]);
             if (isFollowing) {
-                const viewportH = map.getSize().y;
-                const offsetPx = isCourseUp ? (viewportH / 6) : 0;
-                map.setView([lastLat, lastLng], map.getZoom(), { animate: false });
-                if (offsetPx !== 0) map.panBy([0, -offsetPx], { animate: false });
+                map.setView([lastValidLat, lastValidLng], map.getZoom(), { animate: false });
+                map.getPane('mapPane').style.transform = `rotate(${-targetHeading}deg)`;
             }
+            document.getElementById('needle').style.transform = `rotate(${-targetHeading}deg)`;
         }
         requestAnimationFrame(renderLoop);
     }
 
+    function handleGPSUpdate(pos) {
+        lastUpdateTime = Date.now();
+        const { latitude, longitude, speed, altitude, heading, accuracy } = pos.coords;
+        const timeLabel = document.getElementById('time-label');
+        const accFt = Math.round(accuracy * METERS_TO_FEET);
+
+        timeLabel.classList.remove('pulse-red');
+
+        if (accuracy > MAX_ACCURACY_METERS) {
+            timeLabel.classList.remove('pulse-green');
+            timeLabel.classList.toggle('pulse-yellow');
+            document.getElementById('status').innerText = `GPS: ±${accFt}FT (POOR)`;
+            return; 
+        } else {
+            timeLabel.classList.remove('pulse-yellow');
+            timeLabel.classList.toggle('pulse-green');
+            document.getElementById('status').innerText = `GPS: ±${accFt}FT`;
+        }
+
+        lastValidLat = latitude; lastValidLng = longitude;
+        if (heading !== null) targetHeading = heading;
+
+        document.getElementById('speed-val').innerText = speed ? (speed * MPS_TO_MPH).toFixed(1) : "0.0";
+        document.getElementById('elev-val').innerText = altitude ? Math.round(altitude * METERS_TO_FEET) : "---";
+        document.getElementById('heading-val').innerText = Math.round(targetHeading) + "°";
+        updateRouteContext(latitude, longitude);
+    }
+
     function init() {
-        map = L.map('map', { zoomControl: false, preferCanvas: true, doubleClickZoom: false }).setView([0, 0], 16);
-        L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png').addTo(map);
+        updateTime(); setInterval(updateTime, 1000);
+        // INIT MAP AT 0,0 BUT WITH TILES READY
+        map = L.map('map', { zoomControl: false, preferCanvas: true }).setView([37.77, -122.41], 13);
+        L.tileLayer('https://{s}.tile.osm.org/{z}/{x}/{y}.png').addTo(map);
         
-        userMarker = L.circleMarker([0,0], { stroke: true, color: '#fff', weight: 2, fillOpacity: 1, fillColor: '#3498db', radius: 7 }).addTo(map);
+        userMarker = L.circleMarker([0,0], { stroke: false, fillOpacity: 1, fillColor: '#3498db', radius: 7 }).addTo(map);
         snappedMarker = L.circleMarker([0,0], { stroke: false, fillOpacity: 1, fillColor: '#f39c12', radius: 6 }).addTo(map);
 
         const ctx = document.getElementById('elevationChart').getContext('2d');
         chart = new Chart(ctx, {
             type: 'line',
-            data: { datasets: [{ id: 'route', data: [], fill: true, stepped: 'before', pointRadius: 0, borderWidth: 2, borderColor: '#27ae60', backgroundColor: '#27ae6044' }, { id: 'user-pos', data: [], pointRadius: 7, pointBackgroundColor: '#f39c12', pointBorderColor: '#fff', pointBorderWidth: 2, showLine: false }]},
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: false }, animation: false, scales: { x: { type: 'linear' }, y: { grace: '10%' }}}
+            data: { datasets: [{ id:'route', data:[], borderWidth:4, pointRadius:0, fill:false, segment:{borderColor:c=>{
+                const p1=c.p0.raw, p2=c.p1.raw; if(!p1||!p2) return '#27ae60';
+                const g=((p2.y-p1.y)/((p2.x-p1.x)*5280))*100; return g>=6?'#e74c3c':(g>=3?'#f1c40f':'#27ae60');
+            }}}, { id:'user-pos', data:[], pointRadius:7, pointBackgroundColor:'#f39c12', pointBorderColor:'#fff', pointBorderWidth:2, showLine:false }]},
+            options: { responsive:true, maintainAspectRatio:false, plugins:{legend:false}, animation:false, scales:{x:{type:'linear'},y:{grace:'20%'}}}
         });
 
         setupListeners();
-        navigator.geolocation.watchPosition(pos => {
-            const { latitude, longitude, speed, altitude, accuracy } = pos.coords;
-            lastLat = latitude; lastLng = longitude;
-            document.getElementById('status').innerText = `GPS: ±${Math.round(accuracy * METERS_TO_FEET)}FT`;
-            document.getElementById('speed-val').innerText = speed ? (speed * MPS_TO_MPH).toFixed(1) : "0
+        const saved = localStorage.getItem('cycling_route_foss');
+        if (saved) loadKml(saved);
+        requestAnimationFrame(renderLoop);
+        
+        if ("geolocation" in navigator) {
+            navigator.geolocation.watchPosition(handleGPSUpdate, (e) => {
+                let msg = "GPS ERROR: ";
+                if(e.code == 1) msg += "PERMISSION DENIED";
+                else if(e.code == 2) msg += "POSITION UNAVAILABLE";
+                else if(e.code == 3) msg += "TIMEOUT";
+                document.getElementById('status').innerText = msg;
+            }, { enableHighAccuracy: true, timeout: Infinity, maximumAge: 0 });
+        } else {
+            document.getElementById('status').innerText = "GPS: NOT SUPPORTED";
+        }
+    }
+
+    function processRoutePoints(sourceCoords) {
+        routeData = []; totalDist = 0;
+        const processed = sourceCoords.map(c => [c[0], c[1], (c[2] || 0) * METERS_TO_FEET]);
+        routeGeoJson = { type: "Feature", geometry: { type: "LineString", coordinates: processed } };
+        let d = 0; routeData.push({x: 0, y: processed[0][2]});
+        for(let i=1; i < processed.length; i++) {
+            d += turf.distance(turf.point(processed[i-1]), turf.point(processed[i]), {units:'miles'});
+            routeData.push({x: d, y: processed[i][2]});
+        }
+        totalDist = d;
+        chart.data.datasets[0].data = routeData; chart.update();
+        if (kmlRouteLine) map.removeLayer(kmlRouteLine);
+        kmlRouteLine = L.polyline(processed.map(c => [c[1], c[0]]), { color: '#000', weight: 3, opacity: 0.8, dashArray: '8, 12' }).addTo(map);
+        if (lastValidLat !== 0) updateRouteContext(lastValidLat, lastValidLng);
+    }
+
+    function updateRouteContext(lat, lng) {
+        if (!routeGeoJson) return;
+        const snapped = turf.nearestPointOnLine(routeGeoJson, turf.point([lng, lat]), {units: 'miles'});
+        const curDist = snapped.properties.location;
+        snappedMarker.setLatLng([snapped.geometry.coordinates[1], snapped.geometry.coordinates[0]]);
+        const e1 = getElevAtDist(curDist), e2 = getElevAtDist(curDist + 0.01);
+        const grade = ((e2 - e1) / (0.01 * 5280)) * 100;
+        document.getElementById('grade-val').innerText = isFinite(grade) ? grade.toFixed(1) : "0.0";
+        document.getElementById('remain-val').innerText = Math.max(0, totalDist - curDist).toFixed(1);
+        chart.options.scales.x.min = curDist - (WINDOW_MI * 0.25);
+        chart.options.scales.x.max = curDist + (WINDOW_MI * 0.75);
+        chart.data.datasets[1].data = [{ x: curDist, y: e1 }];
+        chart.update('none'); 
+    }
+
+    function getElevAtDist(t) {
+        if (routeData.length === 0) return 0;
+        const target = Math.max(0, Math.min(t, totalDist));
+        for (let i = 0; i < routeData.length - 1; i++) {
+            if (target >= routeData[i].x && target <= routeData[i+1].x) {
+                const r = (target - routeData[i].x) / (routeData[i+1].x - routeData[i].x);
+                return routeData[i].y + r * (routeData[i+1].y - routeData[i].y);
+            }
+        }
+        return routeData[routeData.length - 1].y;
+    }
+
+    function loadKml(xml) {
+        try {
+            const dom = new DOMParser().parseFromString(xml, "text/xml");
+            const geojson = toGeoJSON.kml(dom);
+            let coords = [];
+            geojson.features.forEach(f => {
+                if (f.geometry.type === 'LineString') coords = coords.concat(f.geometry.coordinates);
+                else if (f.geometry.type === 'MultiLineString') f.geometry.coordinates.forEach(line => { coords = coords.concat(line); });
+            });
+            if (coords.length > 0) { masterCoords = coords; localStorage.setItem('cycling_route_foss', xml); processRoutePoints(coords); }
+        } catch(e) { console.error(e); }
+    }
+
+    function setupListeners() {
+        document.getElementById('route-upload').onchange = (e) => {
+            const reader = new FileReader();
+            reader.onload = (ev) => loadKml(ev.target.result);
+            reader.readAsText(e.target.files[0]);
+        };
+        document.getElementById('rev-btn').onclick = () => { if(masterCoords.length) { masterCoords.reverse(); processRoutePoints(masterCoords); } };
+        document.getElementById('reset-btn').onclick = () => { localStorage.clear(); location.reload(); };
+        document.getElementById('recenter-btn').onclick = function() {
+            isFollowing = true; this.style.display = 'none';
+            if (lastValidLat !== 0) map.setView([lastValidLat, lastValidLng], map.getZoom(), { animate: true });
+        };
+        map.on('movestart', () => { 
+            if (isFollowing) { isFollowing = false; document.getElementById('recenter-btn').style.display = 'block'; }
+        });
+        document.getElementById('fs-btn').onclick = () => {
+            if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
+            else document.exitFullscreen();
+        };
+    }
+    window.onload = init;
+</script>
+</body>
+</html>
