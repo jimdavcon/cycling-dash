@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro - Zoom Locked</title>
+    <title>CycleDash Pro - Cached</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -15,27 +15,21 @@
         :root { --sat: env(safe-area-inset-top, 0px); --sab: env(safe-area-inset-bottom, 0px); }
         body, html { margin: 0; padding: 0; height: 100svh; width: 100%; overflow: hidden; background: #1a1a1a; font-family: -apple-system, system-ui, sans-serif; }
         #container { display: flex; flex-direction: column; height: 100svh; width: 100vw; }
-        
         #hud-header { background: #222; color: white; padding-top: var(--sat); display: grid; grid-template-columns: 1fr 1.1fr 1fr; border-bottom: 1px solid #444; flex-shrink: 0; z-index: 1000; height: 60px; }
         .hud-column { display: flex; flex-direction: column; padding: 0px 10px; justify-content: center; }
         .data-row { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #333; padding: 0px 0; line-height: 1.2; }
         .label { font-size: 9px; font-weight: bold; color: #888; text-transform: uppercase; }
         .val-text { font-size: 17px; font-weight: bold; font-family: monospace; color: #fff; }
-
         .pulse-green { color: #2ecc71 !important; } 
         .pulse-yellow { color: #f1c40f !important; }
         .pulse-red { color: #e74c3c !important; }
-
         #map { flex: 1; background: #111; position: relative; width: 100%; z-index: 1; overflow: hidden; }
-        
         #compass-ui { position: absolute; top: 10px; left: 10px; z-index: 2000; width: 44px; height: 44px; background: rgba(0,0,0,0.7); border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid #fff; cursor: pointer; }
-        #needle { width: 3px; height: 30px; background: #e74c3c; position: relative; transition: transform 0.2s ease-out; }
+        #needle { width: 3px; height: 30px; background: #e74c3c; position: relative; transition: transform 0.1s linear; }
         #needle::after { content: ''; position: absolute; bottom: 0; left: 0; width: 3px; height: 50%; background: #fff; }
-
         #bottom-tray { display: flex; height: 140px; background: #fff; border-top: 2px solid #333; padding-bottom: var(--sab); flex-shrink: 0; width: 100%; z-index: 1000; }
         #chart-section { flex: 1; min-width: 0; position: relative; padding: 5px; }
         #action-section { flex: 0 0 90px; display: flex; flex-direction: column; justify-content: space-evenly; align-items: center; background: #ececec; border-left: 1px solid #ccc; }
-        
         .action-btn { font-size: 9px; cursor: pointer; text-align: center; width: 80px; padding: 8px 0; background: #fff; border: 1px solid #999; border-radius: 4px; font-weight: bold; color: #333; }
         #status { position: absolute; bottom: 8px; left: 8px; z-index: 2000; font-size: 10px; color: #2ecc71; font-weight: bold; font-family: monospace; }
         #recenter-btn { position: absolute; top: 10px; right: 10px; z-index: 2000; background: #3498db; color: white; border: none; display: none; padding: 10px 15px; font-size: 11px; font-weight: bold; border-radius: 4px; cursor: pointer; box-shadow: 0 2px 5px rgba(0,0,0,0.3); }
@@ -77,10 +71,33 @@
 </div>
 
 <script>
+    // --- SERVICE WORKER REGISTRATION (OFFLINE CACHE) ---
+    if ('serviceWorker' in navigator) {
+        const swCode = `
+            const CACHE_NAME = 'cycledash-tiles-v1';
+            self.addEventListener('fetch', (event) => {
+                if (event.request.url.includes('tile.openstreetmap.fr')) {
+                    event.respondWith(
+                        caches.match(event.request).then((response) => {
+                            return response || fetch(event.request).then((fetchRes) => {
+                                return caches.open(CACHE_NAME).then((cache) => {
+                                    cache.put(event.request, fetchRes.clone());
+                                    return fetchRes;
+                                });
+                            });
+                        })
+                    );
+                }
+            });
+        `;
+        const blob = new Blob([swCode], { type: 'text/javascript' });
+        navigator.serviceWorker.register(URL.createObjectURL(blob));
+    }
+
     let map, chart, userMarker, snappedMarker;
     let masterCoords = [], routeGeoJson = null, kmlRouteLine = null, routeData = [];
     let breadcrumbs = []; 
-    let isFollowing = true, isCourseUp = true, totalDist = 0, lastValidLat = 0, lastValidLng = 0, targetHeading = 0, frameCount = 0;
+    let isFollowing = true, isCourseUp = true, totalDist = 0, lastValidLat = 0, lastValidLng = 0, targetHeading = 0, currentRotation = 0, frameCount = 0;
     let lastUpdateTime = 0;
     
     const DEFAULT_ZOOM = 16;
@@ -113,16 +130,16 @@
 
         if (lastValidLat !== 0) {
             userMarker.setLatLng([lastValidLat, lastValidLng]);
-            const rotationAngle = isCourseUp ? -targetHeading : 0;
+            let diff = targetHeading - currentRotation;
+            while (diff < -180) diff += 360;
+            while (diff > 180) diff -= 360;
+            currentRotation += diff * 0.1; 
+            const rotationAngle = isCourseUp ? -currentRotation : 0;
             const mapContainer = map.getContainer().querySelector('.leaflet-proxy').parentElement;
-            
-            // Pan only, do not force zoom update
-            if (isFollowing) {
-                map.panTo([lastValidLat, lastValidLng], { animate: false });
-            }
-            
+            if (isFollowing) map.panTo([lastValidLat, lastValidLng], { animate: false });
             mapContainer.style.transform = `rotate(${rotationAngle}deg)`;
-            document.getElementById('needle').style.transform = `rotate(${-targetHeading}deg)`;
+            document.getElementById('needle').style.transform = `rotate(${-currentRotation}deg)`;
+            document.getElementById('heading-val').innerText = Math.round((currentRotation + 360) % 360) + "°";
         }
         requestAnimationFrame(renderLoop);
     }
@@ -131,48 +148,37 @@
         lastUpdateTime = Date.now();
         const { latitude, longitude, speed, altitude, heading, accuracy } = pos.coords;
         const timeVal = document.getElementById('time-val');
-
         if (accuracy < 45) {
             timeVal.className = 'val-text pulse-green';
             document.getElementById('status').innerText = `GPS: ±${Math.round(accuracy * METERS_TO_FEET)}FT`;
-            const bMarker = L.circleMarker([latitude, longitude], {
-                radius: 3, fillColor: '#3498db', fillOpacity: 0.4, stroke: false
-            }).addTo(map);
+            const bMarker = L.circleMarker([latitude, longitude], { radius: 3, fillColor: '#3498db', fillOpacity: 0.4, stroke: false }).addTo(map);
             breadcrumbs.push({ marker: bMarker, timestamp: Date.now() });
-        } else {
-            timeVal.className = 'val-text pulse-yellow';
-        }
-
+        } else { timeVal.className = 'val-text pulse-yellow'; }
         lastValidLat = latitude; lastValidLng = longitude;
-        if (heading !== null) targetHeading = heading;
+        if (!routeGeoJson && heading !== null) targetHeading = heading;
         document.getElementById('speed-val').innerText = speed ? (speed * MPS_TO_MPH).toFixed(1) : "0.0";
         document.getElementById('elev-val').innerText = altitude ? Math.round(altitude * METERS_TO_FEET) : "---";
-        document.getElementById('heading-val').innerText = Math.round(targetHeading) + "°";
         updateRouteContext(latitude, longitude);
     }
 
     function init() {
         updateTime(); setInterval(updateTime, 1000);
         map = L.map('map', { zoomControl: false, preferCanvas: true, doubleClickZoom: false }).setView([0, 0], DEFAULT_ZOOM);
-        L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png').addTo(map);
+        
+        // ADDED crossOrigin: true to allow Service Worker caching
+        L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
+            crossOrigin: true,
+            keepBuffer: 8 // Keeps 8 tiles beyond the view for smoother panning
+        }).addTo(map);
         
         userMarker = L.circleMarker([0,0], { stroke: true, color: '#fff', weight: 2, fillOpacity: 1, fillColor: '#3498db', radius: 7, zIndexOffset: 1000 }).addTo(map);
         snappedMarker = L.circleMarker([0,0], { stroke: false, fillOpacity: 1, fillColor: '#f39c12', radius: 6 }).addTo(map);
-
         const ctx = document.getElementById('elevationChart').getContext('2d');
         chart = new Chart(ctx, {
             type: 'line',
-            data: { 
-                datasets: [
-                    { id: 'route', data: [], fill: 'origin', stepped: 'before', pointRadius: 0, borderWidth: 2,
-                      segment: { borderColor: ctx => getSegmentColor(ctx), backgroundColor: ctx => getSegmentColor(ctx) + '88' }
-                    }, 
-                    { id: 'user-pos', data: [], pointRadius: 7, pointBackgroundColor: '#f39c12', pointBorderColor: '#fff', pointBorderWidth: 2, showLine: false }
-                ]
-            },
+            data: { datasets: [{ id: 'route', data: [], fill: 'origin', stepped: 'before', pointRadius: 0, borderWidth: 2, segment: { borderColor: ctx => getSegmentColor(ctx), backgroundColor: ctx => getSegmentColor(ctx) + '88' }}, { id: 'user-pos', data: [], pointRadius: 7, pointBackgroundColor: '#f39c12', pointBorderColor: '#fff', pointBorderWidth: 2, showLine: false }]},
             options: { responsive: true, maintainAspectRatio: false, plugins: { legend: false }, animation: false, scales: { x: { type: 'linear' }, y: { grace: '10%' }}}
         });
-
         setupListeners();
         const saved = localStorage.getItem('cycling_route_foss');
         if (saved) loadKml(saved);
@@ -206,6 +212,9 @@
         const snapped = turf.nearestPointOnLine(routeGeoJson, turf.point([lng, lat]), {units: 'miles'});
         const curDist = snapped.properties.location;
         snappedMarker.setLatLng([snapped.geometry.coordinates[1], snapped.geometry.coordinates[0]]);
+        const lookAheadDist = Math.min(totalDist, curDist + 0.02);
+        const pointAhead = turf.along(routeGeoJson, lookAheadDist, {units: 'miles'});
+        targetHeading = turf.bearing(turf.point(snapped.geometry.coordinates), turf.point(pointAhead.geometry.coordinates));
         const e1 = getElevAtDist(curDist), e2 = getElevAtDist(curDist + 0.01);
         const grade = ((e2 - e1) / (0.01 * 5280)) * 100;
         document.getElementById('grade-val').innerText = isFinite(grade) ? grade.toFixed(1) : "0.0";
@@ -249,42 +258,11 @@
         };
         document.getElementById('rev-btn').onclick = () => { if(masterCoords.length) { masterCoords.reverse(); processRoutePoints(masterCoords); } };
         document.getElementById('reset-btn').onclick = () => { localStorage.clear(); location.reload(); };
-        
-        // Recenter without changing current zoom
-        document.getElementById('recenter-btn').onclick = function() {
-            isFollowing = true; 
-            this.style.display = 'none';
-            if (lastValidLat !== 0) {
-                map.panTo([lastValidLat, lastValidLng], { animate: true });
-            }
-        };
-
-        // Double Click Reset Zoom
-        map.on('dblclick', () => {
-            map.setZoom(DEFAULT_ZOOM);
-        });
-
-        document.getElementById('compass-ui').onclick = function() {
-            isCourseUp = !isCourseUp;
-            this.style.borderColor = isCourseUp ? '#fff' : '#444';
-            if (!isCourseUp) {
-                const mapContainer = map.getContainer().querySelector('.leaflet-proxy').parentElement;
-                mapContainer.style.transform = `rotate(0deg)`;
-            }
-        };
-
-        // Detect manual pan/zoom
-        map.on('dragstart zoomstart', () => {
-            if (isFollowing) {
-                isFollowing = false;
-                document.getElementById('recenter-btn').style.display = 'block';
-            }
-        });
-
-        document.getElementById('fs-btn').onclick = () => {
-            if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
-            else document.exitFullscreen();
-        };
+        document.getElementById('recenter-btn').onclick = function() { isFollowing = true; this.style.display = 'none'; if (lastValidLat !== 0) map.panTo([lastValidLat, lastValidLng], { animate: true }); };
+        map.on('dblclick', () => { map.setZoom(DEFAULT_ZOOM); });
+        document.getElementById('compass-ui').onclick = function() { isCourseUp = !isCourseUp; this.style.borderColor = isCourseUp ? '#fff' : '#444'; if (!isCourseUp) { const mapContainer = map.getContainer().querySelector('.leaflet-proxy').parentElement; mapContainer.style.transform = `rotate(0deg)`; } };
+        map.on('dragstart zoomstart', () => { if (isFollowing) { isFollowing = false; document.getElementById('recenter-btn').style.display = 'block'; } });
+        document.getElementById('fs-btn').onclick = () => { if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {}); else document.exitFullscreen(); };
     }
     window.onload = init;
 </script>
