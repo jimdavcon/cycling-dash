@@ -3,13 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro - Arrowhead Compass</title>
+    <title>CycleDash Pro - KMZ Fixed</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/togeojson/0.16.0/togeojson.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
     <style>
         :root { --sat: env(safe-area-inset-top, 0px); --sab: env(safe-area-inset-bottom, 0px); }
@@ -32,26 +33,19 @@
             padding: 3px 6px; border-radius: 4px; pointer-events: none; border: 1px solid rgba(255,255,255,0.2);
         }
 
-        /* NEW Compass UI: Arrowhead Style */
         #compass-ui { 
             position: absolute; top: 15px; left: 15px; z-index: 5000; 
             width: 50px; height: 50px; background: rgba(0,0,0,0.8); 
             border-radius: 50%; border: 2px solid #fff; cursor: pointer; pointer-events: auto;
             display: flex; align-items: center; justify-content: center;
         }
-        #needle-pivot { 
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
-            transition: transform 0.3s ease; 
-        }
+        #needle-pivot { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transition: transform 0.3s ease; }
         #arrowhead { 
             position: absolute; top: 2px; left: 50%; transform: translateX(-50%);
             width: 10px; height: 14px; background: #e74c3c;
             clip-path: polygon(50% 0%, 0% 100%, 50% 80%, 100% 100%);
         }
-        #mode-sub-label { 
-            font-size: 8px; color: #fff; font-weight: bold; 
-            text-transform: uppercase; z-index: 2; pointer-events: none;
-        }
+        #mode-sub-label { font-size: 8px; color: #fff; font-weight: bold; text-transform: uppercase; z-index: 2; pointer-events: none; }
 
         #bottom-tray { display: flex; height: 140px; background: #fff; border-top: 2px solid #333; padding-bottom: var(--sab); flex-shrink: 0; z-index: 1000; }
         #chart-section { flex: 1; min-width: 0; padding: 5px; background: #f9f9f9; }
@@ -82,12 +76,10 @@
     <div id="map-window">
         <div id="map"></div>
         <div id="accuracy-box">GPS: -- ft</div>
-        
         <div id="compass-ui">
             <div id="needle-pivot"><div id="arrowhead"></div></div>
             <div id="mode-sub-label">NORTH</div>
         </div>
-
         <button id="recenter-btn">RECENTER</button>
     </div>
 
@@ -140,11 +132,9 @@
             userMarker.setLatLng([lastValidLat, lastValidLng]);
             const mapRot = isRouteUp ? -targetHeading : 0;
             const needleRot = isRouteUp ? 0 : targetHeading;
-            
             document.getElementById('map').style.transform = `rotate(${mapRot}deg)`;
             document.getElementById('needle-pivot').style.transform = `rotate(${needleRot}deg)`;
             document.getElementById('mode-sub-label').innerText = isRouteUp ? "ROUTE" : "NORTH";
-            
             if (isFollowing) map.setView([lastValidLat, lastValidLng], map.getZoom(), { animate: false });
         }
         requestAnimationFrame(renderLoop);
@@ -192,8 +182,9 @@
         });
 
         setupListeners();
-        const saved = localStorage.getItem('cycling_route_foss');
-        if (saved) loadKml(saved);
+        const savedKml = localStorage.getItem('cycling_route_foss_kml');
+        if (savedKml) parseAndProcessKml(savedKml);
+        
         setTimeout(() => map.invalidateSize(), 500);
         requestAnimationFrame(renderLoop);
         if ("geolocation" in navigator) navigator.geolocation.watchPosition(handleGPSUpdate, null, { enableHighAccuracy: true });
@@ -222,6 +213,8 @@
         chart.update();
         if (kmlRouteLine) map.removeLayer(kmlRouteLine);
         kmlRouteLine = L.polyline(processed.map(c => [c[1], c[0]]), { color: '#000', weight: 4, opacity: 0.6, dashArray: '10, 10' }).addTo(map);
+        // Recenter on new route start
+        if(processed.length) map.setView([processed[0][1], processed[0][0]], 15);
     }
 
     function updateRouteContext(lat, lng) {
@@ -258,22 +251,48 @@
         return routeData[routeData.length - 1]?.y || 0;
     }
 
-    function loadKml(xml) {
-        const dom = new DOMParser().parseFromString(xml, "text/xml");
-        const geojson = toGeoJSON.kml(dom);
-        let coords = [];
-        geojson.features.forEach(f => {
-            if (f.geometry.type === 'LineString') coords = coords.concat(f.geometry.coordinates);
-        });
-        if (coords.length > 0) { masterCoords = coords; processRoutePoints(coords); localStorage.setItem('cycling_route_foss', xml); }
+    async function handleFileSelect(file) {
+        if (!file) return;
+        const reader = new FileReader();
+        
+        if (file.name.toLowerCase().endsWith('.kmz')) {
+            reader.onload = async (e) => {
+                const zip = await JSZip.loadAsync(e.target.result);
+                // Look for doc.kml or any .kml file in the archive
+                const kmlFile = zip.file("doc.kml") || zip.file(/\.kml$/i)[0];
+                if (kmlFile) {
+                    const kmlText = await kmlFile.async("string");
+                    parseAndProcessKml(kmlText);
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        } else {
+            reader.onload = (e) => parseAndProcessKml(e.target.result);
+            reader.readAsText(file);
+        }
+    }
+
+    function parseAndProcessKml(xml) {
+        try {
+            const dom = new DOMParser().parseFromString(xml, "text/xml");
+            const geojson = toGeoJSON.kml(dom);
+            let coords = [];
+            geojson.features.forEach(f => {
+                if (f.geometry.type === 'LineString') coords = coords.concat(f.geometry.coordinates);
+                else if (f.geometry.type === 'MultiLineString') {
+                    f.geometry.coordinates.forEach(line => coords = coords.concat(line));
+                }
+            });
+            if (coords.length > 0) { 
+                masterCoords = coords; 
+                processRoutePoints(coords); 
+                localStorage.setItem('cycling_route_foss_kml', xml); 
+            }
+        } catch (err) { console.error("KML Parse Error", err); }
     }
 
     function setupListeners() {
-        document.getElementById('route-upload').onchange = (e) => {
-            const reader = new FileReader();
-            reader.onload = (ev) => loadKml(ev.target.result);
-            reader.readAsText(e.target.files[0]);
-        };
+        document.getElementById('route-upload').onchange = (e) => handleFileSelect(e.target.files[0]);
         document.getElementById('rev-btn').onclick = () => { if(masterCoords.length) { masterCoords.reverse(); processRoutePoints(masterCoords); } };
         document.getElementById('reset-btn').onclick = () => { localStorage.clear(); location.reload(); };
         document.getElementById('recenter-btn').onclick = () => { isFollowing = true; document.getElementById('recenter-btn').style.display = 'none'; };
