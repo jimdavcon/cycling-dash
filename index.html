@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro - 1.0mi Window</title>
+    <title>CycleDash Pro - Stepped Elevation</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -105,7 +105,7 @@
     let lastGpsTick = 0, flashPhase = false;
     
     const METERS_TO_FEET = 3.28084, MPS_TO_MPH = 2.23694;
-    const CHART_WINDOW_MI = 1.0; // Updated from 0.5 to 1.0
+    const CHART_WINDOW_MI = 1.0; 
     const FIVE_MINUTES = 300000;
     const fmt = (val, dec = 0) => (val === null || isNaN(val) || val === undefined) ? "---" : Number(val).toFixed(dec);
 
@@ -207,9 +207,7 @@
                         type:'linear', 
                         display: true, 
                         title: { display: true, text: 'MILES', font: { size: 9, weight: 'bold' } },
-                        ticks: { font: { size: 9, family: 'monospace' } }
                     }, 
-                    y:{grace:'15%', beginAtZero: false, ticks: { font: { size: 9, family: 'monospace' } }}
                 }
             }
         });
@@ -234,10 +232,16 @@
             const rise = processed[i+1][2] - processed[i][2];
             const run = step * 5280;
             const grade = run > 0 ? (rise / run) * 100 : 0;
+            
+            // The logic: Constant elevation (Average of start and end)
             const avgElev = (processed[i][2] + processed[i+1][2]) / 2;
 
+            // Chart.js Bar handles the "width" implicitly when using linear scales. 
+            // We push the center point of the segment.
             routeData.push({ x: d + (step / 2), y: avgElev });
-            colors.push(grade > 6 ? '#e74c3c' : (grade > 3 ? '#f1c40f' : (grade < -3 ? '#3498db' : '#27ae60')));
+            
+            // Color based on the grade between points
+            colors.push(grade >= 6 ? '#e74c3c' : (grade >= 3 ? '#f1c40f' : (grade < -3 ? '#3498db' : '#27ae60')));
             d += step;
         }
         totalDist = d;
@@ -267,7 +271,6 @@
         document.getElementById('grade-val').innerText = fmt(((e2 - e1) / (0.01 * 5280)) * 100, 1);
         document.getElementById('remain-val').innerText = fmt(Math.max(0, totalDist - curDist), 1);
         
-        // Pin window to current distance + 1.0 miles
         chart.options.scales.x.min = curDist;
         chart.options.scales.x.max = curDist + CHART_WINDOW_MI;
         chart.data.datasets[1].data = [{ x: curDist, y: e1 }];
