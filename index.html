@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>CycleDash Pro - 1.0mi Window</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -83,6 +84,9 @@
     </div>
 
     <div id="bottom-tray">
+        <div id="chart-section">
+            <canvas id="elevationChart"></canvas>
+        </div>
         <div id="action-section">
             <label class="action-btn">LOAD <input type="file" id="route-upload" accept=".kml,.kmz" style="display:none"></label>
             <button class="action-btn" id="rev-btn">REVERSE</button>
