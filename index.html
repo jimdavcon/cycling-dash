@@ -3,7 +3,6 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro - KMZ Fixed</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -21,7 +20,7 @@
         .hud-column { display: flex; flex-direction: column; padding: 0px 10px; justify-content: center; }
         .data-row { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #333; }
         
-        .label { font-size: 9px; font-weight: bold; color: #888; text-transform: uppercase; transition: color 0.1s; }
+        .label { font-size: 9px; font-weight: bold; color: #888; text-transform: uppercase; }
         .val-text { font-size: 17px; font-weight: bold; font-family: monospace; color: #fff; line-height: 1.2; }
 
         #map-window { flex: 1; position: relative; overflow: hidden; background: #111; z-index: 1; }
@@ -36,7 +35,7 @@
         #compass-ui { 
             position: absolute; top: 15px; left: 15px; z-index: 5000; 
             width: 50px; height: 50px; background: rgba(0,0,0,0.8); 
-            border-radius: 50%; border: 2px solid #fff; cursor: pointer; pointer-events: auto;
+            border-radius: 50%; border: 2px solid #fff; cursor: pointer;
             display: flex; align-items: center; justify-content: center;
         }
         #needle-pivot { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transition: transform 0.3s ease; }
@@ -47,8 +46,8 @@
         }
         #mode-sub-label { font-size: 8px; color: #fff; font-weight: bold; text-transform: uppercase; z-index: 2; pointer-events: none; }
 
-        #bottom-tray { display: flex; height: 140px; background: #fff; border-top: 2px solid #333; padding-bottom: var(--sab); flex-shrink: 0; z-index: 1000; }
-        #chart-section { flex: 1; min-width: 0; padding: 5px; background: #f9f9f9; }
+        #bottom-tray { display: flex; height: 160px; background: #fff; border-top: 2px solid #333; padding-bottom: var(--sab); flex-shrink: 0; z-index: 1000; }
+        #chart-section { flex: 1; min-width: 0; padding: 5px 10px; background: #f9f9f9; display: flex; flex-direction: column; }
         #action-section { flex: 0 0 90px; display: flex; flex-direction: column; justify-content: space-evenly; align-items: center; background: #ececec; border-left: 1px solid #ccc; }
         
         .action-btn { font-size: 9px; cursor: pointer; text-align: center; width: 80px; padding: 8px 0; background: #fff; border: 1px solid #999; border-radius: 4px; font-weight: bold; }
@@ -84,7 +83,6 @@
     </div>
 
     <div id="bottom-tray">
-        <div id="chart-section"><canvas id="elevationChart"></canvas></div>
         <div id="action-section">
             <label class="action-btn">LOAD <input type="file" id="route-upload" accept=".kml,.kmz" style="display:none"></label>
             <button class="action-btn" id="rev-btn">REVERSE</button>
@@ -102,7 +100,8 @@
     let lastValidLat = 0, lastValidLng = 0, targetHeading = 0, totalDist = 0;
     let lastGpsTick = 0, flashPhase = false;
     
-    const METERS_TO_FEET = 3.28084, MPS_TO_MPH = 2.23694, WINDOW_MI = 1.0;
+    const METERS_TO_FEET = 3.28084, MPS_TO_MPH = 2.23694;
+    const CHART_WINDOW_MI = 1.0; // Updated from 0.5 to 1.0
     const FIVE_MINUTES = 300000;
     const fmt = (val, dec = 0) => (val === null || isNaN(val) || val === undefined) ? "---" : Number(val).toFixed(dec);
 
@@ -175,10 +174,40 @@
         chart = new Chart(ctx, {
             type: 'bar',
             data: { 
-                datasets: [{ id:'route', data:[], backgroundColor: [], barPercentage: 1.0, categoryPercentage: 1.0, barThickness: 6 }, 
-                           { id:'user-pos', type: 'line', data:[], pointRadius:8, pointBackgroundColor:'#f39c12', showLine:false }]
+                datasets: [
+                    { 
+                        id:'route', 
+                        data:[], 
+                        backgroundColor: [], 
+                        barPercentage: 1.0, 
+                        categoryPercentage: 1.0, 
+                        borderWidth: 0 
+                    }, 
+                    { 
+                        id:'user-pos', 
+                        type: 'line', 
+                        data:[], 
+                        pointRadius:8, 
+                        pointBackgroundColor:'#f39c12', 
+                        showLine:false 
+                    }
+                ]
             },
-            options: { responsive:true, maintainAspectRatio:false, plugins:{legend:false}, animation:false, scales:{x:{type:'linear', display: false}, y:{grace:'15%'}}}
+            options: { 
+                responsive:true, 
+                maintainAspectRatio:false, 
+                plugins:{legend:false, tooltip: false}, 
+                animation:false, 
+                scales:{
+                    x:{
+                        type:'linear', 
+                        display: true, 
+                        title: { display: true, text: 'MILES', font: { size: 9, weight: 'bold' } },
+                        ticks: { font: { size: 10, family: 'monospace' } }
+                    }, 
+                    y:{grace:'15%', beginAtZero: false, ticks: { font: { size: 10, family: 'monospace' } }}
+                }
+            }
         });
 
         setupListeners();
@@ -194,26 +223,26 @@
         routeData = []; totalDist = 0; let colors = [];
         const processed = sourceCoords.map(c => [c[0], c[1], (c[2] || 0) * METERS_TO_FEET]);
         routeGeoJson = { type: "Feature", geometry: { type: "LineString", coordinates: processed } };
+        
         let d = 0;
-        for(let i=0; i < processed.length; i++) {
-            let grade = 0;
-            if (i > 0) {
-                const step = turf.distance(turf.point(processed[i-1]), turf.point(processed[i]), {units:'miles'});
-                d += step;
-                const rise = processed[i][2] - processed[i-1][2];
-                const run = step * 5280;
-                grade = run > 0 ? (rise / run) * 100 : 0;
-            }
-            routeData.push({ x: d, y: processed[i][2] });
-            colors.push(grade > 6 ? '#e74c3c' : (grade > 3 ? '#f1c40f' : '#27ae60'));
+        for(let i=0; i < processed.length - 1; i++) {
+            const step = turf.distance(turf.point(processed[i]), turf.point(processed[i+1]), {units:'miles'});
+            const rise = processed[i+1][2] - processed[i][2];
+            const run = step * 5280;
+            const grade = run > 0 ? (rise / run) * 100 : 0;
+            const avgElev = (processed[i][2] + processed[i+1][2]) / 2;
+
+            routeData.push({ x: d + (step / 2), y: avgElev });
+            colors.push(grade > 6 ? '#e74c3c' : (grade > 3 ? '#f1c40f' : (grade < -3 ? '#3498db' : '#27ae60')));
+            d += step;
         }
         totalDist = d;
         chart.data.datasets[0].data = routeData;
         chart.data.datasets[0].backgroundColor = colors;
         chart.update();
+
         if (kmlRouteLine) map.removeLayer(kmlRouteLine);
         kmlRouteLine = L.polyline(processed.map(c => [c[1], c[0]]), { color: '#000', weight: 4, opacity: 0.6, dashArray: '10, 10' }).addTo(map);
-        // Recenter on new route start
         if(processed.length) map.setView([processed[0][1], processed[0][0]], 15);
     }
 
@@ -234,31 +263,34 @@
         document.getElementById('grade-val').innerText = fmt(((e2 - e1) / (0.01 * 5280)) * 100, 1);
         document.getElementById('remain-val').innerText = fmt(Math.max(0, totalDist - curDist), 1);
         
-        chart.options.scales.x.min = curDist - (WINDOW_MI * 0.25);
-        chart.options.scales.x.max = curDist + (WINDOW_MI * 0.75);
+        // Pin window to current distance + 1.0 miles
+        chart.options.scales.x.min = curDist;
+        chart.options.scales.x.max = curDist + CHART_WINDOW_MI;
         chart.data.datasets[1].data = [{ x: curDist, y: e1 }];
         chart.update('none'); 
     }
 
     function getElevAtDist(t) {
         const target = Math.max(0, Math.min(t, totalDist));
-        for (let i = 0; i < routeData.length - 1; i++) {
-            if (target >= routeData[i].x && target <= routeData[i+1].x) {
-                const r = (target - routeData[i].x) / (routeData[i+1].x - routeData[i].x);
-                return routeData[i].y + r * (routeData[i+1].y - routeData[i].y);
+        const coords = routeGeoJson.geometry.coordinates;
+        let d = 0;
+        for (let i = 0; i < coords.length - 1; i++) {
+            const step = turf.distance(turf.point(coords[i]), turf.point(coords[i+1]), {units:'miles'});
+            if (target >= d && target <= d + step) {
+                const r = (target - d) / step;
+                return coords[i][2] + r * (coords[i+1][2] - coords[i][2]);
             }
+            d += step;
         }
-        return routeData[routeData.length - 1]?.y || 0;
+        return coords[coords.length - 1][2];
     }
 
     async function handleFileSelect(file) {
         if (!file) return;
         const reader = new FileReader();
-        
         if (file.name.toLowerCase().endsWith('.kmz')) {
             reader.onload = async (e) => {
                 const zip = await JSZip.loadAsync(e.target.result);
-                // Look for doc.kml or any .kml file in the archive
                 const kmlFile = zip.file("doc.kml") || zip.file(/\.kml$/i)[0];
                 if (kmlFile) {
                     const kmlText = await kmlFile.async("string");
@@ -297,7 +329,12 @@
         document.getElementById('reset-btn').onclick = () => { localStorage.clear(); location.reload(); };
         document.getElementById('recenter-btn').onclick = () => { isFollowing = true; document.getElementById('recenter-btn').style.display = 'none'; };
         document.getElementById('compass-ui').onclick = () => { isRouteUp = !isRouteUp; };
-        map.on('dragstart', () => { isFollowing = false; document.getElementById('recenter-btn').style.display = 'block'; });
+        
+        map.on('dragstart', () => { 
+            isFollowing = false; 
+            document.getElementById('recenter-btn').style.display = 'block'; 
+        });
+
         document.getElementById('fs-btn').onclick = () => {
             if (!document.fullscreenElement) document.documentElement.requestFullscreen();
             else document.exitFullscreen();
