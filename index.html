@@ -149,7 +149,7 @@
         crumbs = crumbs.filter(c => now - c.time < FIVE_MINUTES);
         breadcrumbLayer.clearLayers();
         crumbs.forEach(c => {
-            L.circleMarker(c.latlng, { radius: 3, color: '#00FFFF', fillOpacity: 0.8, stroke: false }).addTo(breadcrumbLayer);
+            L.circleMarker(c.latlng, { radius: 3, color: '#00FFFF', fillOpacity: 0.8, stroke: false, zIndexOffset: 4000 }).addTo(breadcrumbLayer);
         });
 
         if (accuracy > 50) return;
@@ -165,7 +165,6 @@
         routeLayer = L.layerGroup().addTo(map);
         breadcrumbLayer = L.layerGroup().addTo(map);
         
-        // Z-Index Management: User (Highest) > Snapped > Route Line
         userMarker = L.circleMarker([0,0], { stroke: true, color: '#fff', weight: 2, fillOpacity: 1, fillColor: '#00FFFF', radius: 8, zIndexOffset: 4000 }).addTo(map);
         snappedMarker = L.circleMarker([0,0], { stroke: true, color: '#000', weight: 1, fillOpacity: 1, fillColor: '#FF9F00', radius: 6, zIndexOffset: 3000 }).addTo(map);
         
@@ -173,6 +172,8 @@
         endMarker = L.circleMarker([0,0], { color: '#e74c3c', fillOpacity: 0.9, radius: 8, zIndexOffset: 2500 });
 
         const ctx = document.getElementById('elevationChart').getContext('2d');
+        
+        // Vertical User Position Line Plugin (Solid Black)
         const verticalLinePlugin = {
             id: 'verticalLine',
             afterDatasetsDraw(chart) {
@@ -180,8 +181,14 @@
                 const {ctx, chartArea: {top, bottom}, scales: {x}} = chart;
                 const xPos = x.getPixelForValue(currentRouteDist);
                 if (xPos >= chart.chartArea.left && xPos <= chart.chartArea.right) {
-                    ctx.save(); ctx.beginPath(); ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
-                    ctx.moveTo(xPos, top); ctx.lineTo(xPos, bottom); ctx.stroke(); ctx.restore();
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.strokeStyle = '#000';
+                    ctx.lineWidth = 1; // Match standard grid weight
+                    ctx.moveTo(xPos, top);
+                    ctx.lineTo(xPos, bottom);
+                    ctx.stroke();
+                    ctx.restore();
                 }
             }
         };
@@ -191,10 +198,21 @@
             data: { datasets: [{ id:'route', data:[], stepped: 'middle', fill: true, pointRadius: 0, borderWidth: 1,
                 segment: { borderColor: c => getGradeColor(c.p0DataIndex), backgroundColor: c => getGradeColor(c.p0DataIndex, 0.4) }
             }]},
-            options: { responsive:true, maintainAspectRatio:false, layout: { padding: 0 },
+            options: { 
+                responsive:true, maintainAspectRatio:false, layout: { padding: 0 },
                 plugins:{ legend:false, tooltip: false }, animation:false, 
-                scales:{ x:{ type:'linear', display: true, ticks: { font: { size: 9 } } }, 
-                         y:{ grace:'15%', beginAtZero: false, ticks: { font: { size: 9 } } } }
+                scales:{ 
+                    x:{ 
+                        type:'linear', display: true, 
+                        ticks: { font: { size: 9 } },
+                        grid: { color: 'rgba(0, 0, 0, 0.1)' } // Restore light gray
+                    }, 
+                    y:{ 
+                        grace:'15%', beginAtZero: false, 
+                        ticks: { font: { size: 9 } },
+                        grid: { color: 'rgba(0, 0, 0, 0.1)' } // Restore light gray
+                    } 
+                }
             }
         });
 
@@ -266,7 +284,6 @@
         routeLayer.clearLayers();
         kmlRouteLine = L.polyline(processed.map(c => [c[1], c[0]]), { color: '#444', weight: 4, opacity: 0.5, dashArray: '10, 10' }).addTo(routeLayer);
         
-        // Setup Start/End points
         startMarker.setLatLng([processed[0][1], processed[0][0]]).addTo(routeLayer);
         endMarker.setLatLng([processed[processed.length-1][1], processed[processed.length-1][0]]).addTo(routeLayer);
     }
