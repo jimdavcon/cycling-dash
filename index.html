@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro - Full Logic Restore</title>
+    <title>CycleDash Pro - Neon Glow</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -35,17 +35,17 @@
 
         #compass-ui { 
             position: absolute; top: 15px; left: 15px; z-index: 5000; 
-            width: 50px; height: 50px; background: rgba(0,0,0,0.8); 
+            width: 45px; height: 45px; background: rgba(0,0,0,0.8); 
             border-radius: 50%; border: 2px solid #fff; cursor: pointer;
             display: flex; align-items: center; justify-content: center;
         }
         #needle-pivot { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transition: transform 0.3s ease; }
         #arrowhead { 
             position: absolute; top: 2px; left: 50%; transform: translateX(-50%);
-            width: 10px; height: 14px; background: #e74c3c;
+            width: 9px; height: 13px; background: #e74c3c;
             clip-path: polygon(50% 0%, 0% 100%, 50% 80%, 100% 100%);
         }
-        #mode-sub-label { font-size: 8px; color: #fff; font-weight: bold; text-transform: uppercase; z-index: 2; pointer-events: none; }
+        #mode-sub-label { font-size: 7px; color: #fff; font-weight: bold; text-transform: uppercase; z-index: 2; pointer-events: none; }
 
         #bottom-tray { display: flex; height: 140px; background: #fff; border-top: 2px solid #333; padding-bottom: var(--sab); flex-shrink: 0; z-index: 1000; }
         #chart-section { flex: 1; min-width: 0; padding: 2px; background: #f9f9f9; display: flex; flex-direction: column; overflow: hidden; }
@@ -97,7 +97,7 @@
 </div>
 
 <script>
-    let map, chart, userMarker, snappedMarker, breadcrumbLayer;
+    let map, chart, userMarker, snappedMarker, breadcrumbLayer, routeLayer;
     let masterCoords = [], routeGeoJson = null, kmlRouteLine = null;
     let crumbs = [], routeElevData = [], segmentColors = [];
     let isFollowing = true, isRouteUp = false; 
@@ -108,7 +108,6 @@
     const CHART_WINDOW_MI = 1.0, FIVE_MINUTES = 300000; 
     const fmt = (val, dec = 0) => (val === null || isNaN(val) || val === undefined) ? "---" : Number(val).toFixed(dec);
 
-    // RESTORED: Core engine functions
     function updateTimeAndHeartbeat() {
         const now = new Date();
         let h = now.getHours(), m = now.getMinutes().toString().padStart(2, '0'), x = h >= 12 ? 'p' : 'a';
@@ -154,7 +153,7 @@
         crumbs = crumbs.filter(c => now - c.time < FIVE_MINUTES);
         breadcrumbLayer.clearLayers();
         crumbs.forEach(c => {
-            L.circleMarker(c.latlng, { radius: 3, color: '#3498db', fillOpacity: 0.6, stroke: false }).addTo(breadcrumbLayer);
+            L.circleMarker(c.latlng, { radius: 3, color: '#00FFFF', fillOpacity: 0.8, stroke: false }).addTo(breadcrumbLayer);
         });
 
         if (accuracy > 50) return;
@@ -167,10 +166,12 @@
         setInterval(updateTimeAndHeartbeat, 500);
         map = L.map('map', { zoomControl: false, preferCanvas: true, attributionControl: false }).setView([0,0], 17);
         L.tileLayer('https://{s}.tile.osm.org/{z}/{x}/{y}.png').addTo(map);
-        breadcrumbLayer = L.layerGroup().addTo(map);
         
-        userMarker = L.circleMarker([0,0], { stroke: true, color: '#fff', weight: 2, fillOpacity: 1, fillColor: '#3498db', radius: 8, zIndexOffset: 1000 }).addTo(map);
-        snappedMarker = L.circleMarker([0,0], { stroke: false, fillOpacity: 1, fillColor: '#f39c12', radius: 6 }).addTo(map);
+        // --- Z-ORDER INIT ---
+        routeLayer = L.layerGroup().addTo(map);
+        breadcrumbLayer = L.layerGroup().addTo(map);
+        userMarker = L.circleMarker([0,0], { stroke: true, color: '#fff', weight: 2, fillOpacity: 1, fillColor: '#00FFFF', radius: 8, zIndexOffset: 2000 }).addTo(map);
+        snappedMarker = L.circleMarker([0,0], { stroke: false, fillOpacity: 1, fillColor: '#FF9F00', radius: 6, zIndexOffset: 1500 }).addTo(map);
 
         const ctx = document.getElementById('elevationChart').getContext('2d');
         chart = new Chart(ctx, {
@@ -184,7 +185,7 @@
                             backgroundColor: c => getGradeColor(c.p0DataIndex, 0.4)
                         }
                     }, 
-                    { id:'user-pos', data:[], pointRadius:8, pointBackgroundColor:'#f39c12', showLine:false }
+                    { id:'user-pos', data:[], pointRadius:8, pointBackgroundColor:'#FF9F00', showLine:false }
                 ]
             },
             options: { 
@@ -261,8 +262,9 @@
         totalDist = d;
         chart.data.datasets[0].data = routeElevData;
         chart.update();
-        if (kmlRouteLine) map.removeLayer(kmlRouteLine);
-        kmlRouteLine = L.polyline(processed.map(c => [c[1], c[0]]), { color: '#000', weight: 4, opacity: 0.6, dashArray: '10, 10' }).addTo(map);
+        
+        routeLayer.clearLayers();
+        kmlRouteLine = L.polyline(processed.map(c => [c[1], c[0]]), { color: '#444', weight: 4, opacity: 0.6, dashArray: '10, 10' }).addTo(routeLayer);
     }
 
     function updateRouteContext(lat, lng) {
