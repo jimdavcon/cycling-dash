@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CycleDash Pro - Neon Precision</title>
+    <title>CycleDash Pro - GPS Precision</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -97,7 +97,7 @@
             <canvas id="elevationChart"></canvas>
         </div>
         <div id="action-section">
-            <label class="action-btn">LOAD <input type="file" id="route-upload" accept=".kml,.kmz" style="display:none"></label>
+            <label class="action-btn">LOAD <input type="file" id="route-upload" accept=".kml,.kmz,.gpx" style="display:none"></label>
             <button class="action-btn" id="rev-btn">REVERSE</button>
             <button class="action-btn" id="fs-btn">FULL</button>
             <button class="action-btn" id="reset-btn">RESET</button>
@@ -201,8 +201,10 @@
         });
 
         setupListeners();
-        const savedKml = localStorage.getItem('cycling_route_foss_kml');
-        if (savedKml) parseAndProcessKml(savedKml);
+        const savedData = localStorage.getItem('cycling_route_data');
+        const savedFormat = localStorage.getItem('cycling_route_format') || 'kml';
+        if (savedData) parseAndProcessFile(savedData, savedFormat);
+
         requestAnimationFrame(renderLoop);
         if ("geolocation" in navigator) navigator.geolocation.watchPosition(handleGPSUpdate, null, { enableHighAccuracy: true });
     }
@@ -217,23 +219,28 @@
     async function handleFileSelect(file) {
         if (!file) return;
         const reader = new FileReader();
-        if (file.name.toLowerCase().endsWith('.kmz')) {
+        const fileName = file.name.toLowerCase();
+
+        if (fileName.endsWith('.kmz')) {
             reader.onload = async (e) => {
                 const zip = await JSZip.loadAsync(e.target.result);
                 const kmlFile = zip.file("doc.kml") || zip.file(/\.kml$/i)[0];
-                if (kmlFile) parseAndProcessKml(await kmlFile.async("string"));
+                if (kmlFile) parseAndProcessFile(await kmlFile.async("string"), 'kml');
             };
             reader.readAsArrayBuffer(file);
+        } else if (fileName.endsWith('.gpx')) {
+            reader.onload = (e) => parseAndProcessFile(e.target.result, 'gpx');
+            reader.readAsText(file);
         } else {
-            reader.onload = (e) => parseAndProcessKml(e.target.result);
+            reader.onload = (e) => parseAndProcessFile(e.target.result, 'kml');
             reader.readAsText(file);
         }
     }
 
-    function parseAndProcessKml(xml) {
+    function parseAndProcessFile(xmlText, format) {
         try {
-            const dom = new DOMParser().parseFromString(xml, "text/xml");
-            const geojson = toGeoJSON.kml(dom);
+            const dom = new DOMParser().parseFromString(xmlText, "text/xml");
+            let geojson = (format === 'gpx') ? toGeoJSON.gpx(dom) : toGeoJSON.kml(dom);
             let coords = [];
             geojson.features.forEach(f => {
                 if (f.geometry.type === 'LineString') coords = coords.concat(f.geometry.coordinates);
@@ -242,7 +249,8 @@
             if (coords.length > 0) { 
                 masterCoords = coords; 
                 processRoutePoints(coords); 
-                localStorage.setItem('cycling_route_foss_kml', xml); 
+                localStorage.setItem('cycling_route_data', xmlText);
+                localStorage.setItem('cycling_route_format', format);
             }
         } catch(e) { console.error(e); }
     }
@@ -266,9 +274,7 @@
         chart.update();
         
         routeLayer.clearLayers();
-        // Dashed Black Route Line with Opacity 1
         kmlRouteLine = L.polyline(processed.map(c => [c[1], c[0]]), { color: '#000', weight: 3, opacity: 1, dashArray: '5, 10' }).addTo(routeLayer);
-        
         startMarker.setLatLng([processed[0][1], processed[0][0]]).addTo(routeLayer);
         endMarker.setLatLng([processed[processed.length-1][1], processed[processed.length-1][0]]).addTo(routeLayer);
     }
@@ -286,18 +292,13 @@
         document.getElementById('grade-val').innerText = fmt(((e2 - e1) / (0.01 * 5280)) * 100, 1);
         document.getElementById('remain-val').innerText = fmt(Math.max(0, totalDist - currentRouteDist), 1);
         
-        const minX = currentRouteDist - 0.2;
-        const maxX = currentRouteDist + 0.8;
-        
+        const minX = currentRouteDist - 0.2, maxX = currentRouteDist + 0.8;
         const visiblePoints = routeElevData.filter(pt => pt.x >= minX && pt.x <= maxX);
         if (visiblePoints.length > 0) {
             const elevations = visiblePoints.map(pt => pt.y);
-            const minElev = Math.min(...elevations);
-            const maxElev = Math.max(...elevations);
-            chart.options.scales.y.min = minElev - 50;
-            chart.options.scales.y.max = maxElev + 50;
+            chart.options.scales.y.min = Math.min(...elevations) - 50;
+            chart.options.scales.y.max = Math.max(...elevations) + 50;
         }
-
         chart.options.scales.x.min = minX;
         chart.options.scales.x.max = maxX;
         chart.update('none'); 
