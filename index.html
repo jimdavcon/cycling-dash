@@ -172,8 +172,6 @@
         endMarker = L.circleMarker([0,0], { color: '#e74c3c', fillOpacity: 0.9, radius: 8, zIndexOffset: 2500 });
 
         const ctx = document.getElementById('elevationChart').getContext('2d');
-        
-        // Vertical User Position Line Plugin (Solid Black)
         const verticalLinePlugin = {
             id: 'verticalLine',
             afterDatasetsDraw(chart) {
@@ -181,14 +179,8 @@
                 const {ctx, chartArea: {top, bottom}, scales: {x}} = chart;
                 const xPos = x.getPixelForValue(currentRouteDist);
                 if (xPos >= chart.chartArea.left && xPos <= chart.chartArea.right) {
-                    ctx.save();
-                    ctx.beginPath();
-                    ctx.strokeStyle = '#000';
-                    ctx.lineWidth = 1; // Match standard grid weight
-                    ctx.moveTo(xPos, top);
-                    ctx.lineTo(xPos, bottom);
-                    ctx.stroke();
-                    ctx.restore();
+                    ctx.save(); ctx.beginPath(); ctx.strokeStyle = '#000'; ctx.lineWidth = 1;
+                    ctx.moveTo(xPos, top); ctx.lineTo(xPos, bottom); ctx.stroke(); ctx.restore();
                 }
             }
         };
@@ -202,16 +194,8 @@
                 responsive:true, maintainAspectRatio:false, layout: { padding: 0 },
                 plugins:{ legend:false, tooltip: false }, animation:false, 
                 scales:{ 
-                    x:{ 
-                        type:'linear', display: true, 
-                        ticks: { font: { size: 9 } },
-                        grid: { color: 'rgba(0, 0, 0, 0.1)' } // Restore light gray
-                    }, 
-                    y:{ 
-                        grace:'15%', beginAtZero: false, 
-                        ticks: { font: { size: 9 } },
-                        grid: { color: 'rgba(0, 0, 0, 0.1)' } // Restore light gray
-                    } 
+                    x:{ type:'linear', display: true, ticks: { font: { size: 9 } }, grid: { color: 'rgba(0, 0, 0, 0.1)' } }, 
+                    y:{ grace:'15%', beginAtZero: false, ticks: { font: { size: 9 } }, grid: { color: 'rgba(0, 0, 0, 0.1)' } } 
                 }
             }
         });
@@ -282,7 +266,8 @@
         chart.update();
         
         routeLayer.clearLayers();
-        kmlRouteLine = L.polyline(processed.map(c => [c[1], c[0]]), { color: '#444', weight: 4, opacity: 0.5, dashArray: '10, 10' }).addTo(routeLayer);
+        // Dashed Black Route Line
+        kmlRouteLine = L.polyline(processed.map(c => [c[1], c[0]]), { color: '#000', weight: 3, opacity: 1, dashArray: '5, 10' }).addTo(routeLayer);
         
         startMarker.setLatLng([processed[0][1], processed[0][0]]).addTo(routeLayer);
         endMarker.setLatLng([processed[processed.length-1][1], processed[processed.length-1][0]]).addTo(routeLayer);
