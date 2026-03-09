@@ -21,7 +21,6 @@
         .hud-column { display: flex; flex-direction: column; padding: 0px 10px; justify-content: center; }
         .data-row { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #333; }
         
-        /* Standardized Label Font Size: 9px */
         .label { font-size: 9px; font-weight: bold; color: #888; text-transform: uppercase; }
         .val-text { font-size: 17px; font-weight: bold; font-family: monospace; color: #fff; line-height: 1.2; }
 
@@ -48,7 +47,6 @@
             clip-path: polygon(50% 0%, 0% 100%, 50% 80%, 100% 100%);
         }
 
-        /* Compass Text: Now uses standardized 9px font size */
         #mode-sub-label { 
             position: absolute; z-index: 10;
             font-size: 9px; color: #fff; font-weight: bold; 
@@ -112,11 +110,11 @@
     let masterCoords = [], routeGeoJson = null, kmlRouteLine = null;
     let crumbs = [], routeElevData = [], segmentColors = [];
     let isFollowing = true, isRouteUp = false; 
-    let lastValidLat = 0, lastValidLng = 0, targetHeading = 0, totalDist = 0;
+    let lastValidLat = 0, lastValidLng = 0, targetHeading = 0, totalDist = 0, currentRouteDist = 0;
     let lastGpsTick = 0, flashPhase = false;
     
     const METERS_TO_FEET = 3.28084, MPS_TO_MPH = 2.23694;
-    const CHART_WINDOW_MI = 1.0, FIVE_MINUTES = 300000; 
+    const FIVE_MINUTES = 300000; // Restored constant
     const fmt = (val, dec = 0) => (val === null || isNaN(val) || val === undefined) ? "---" : Number(val).toFixed(dec);
 
     function updateTimeAndHeartbeat() {
@@ -146,12 +144,15 @@
         const { latitude, longitude, speed, altitude, accuracy } = pos.coords;
         lastValidLat = latitude; lastValidLng = longitude;
         document.getElementById('accuracy-box').innerText = `GPS: ±${Math.round(accuracy * METERS_TO_FEET)}ft`;
+        
+        // Breadcrumb Trail logic restored with constant
         crumbs.push({ latlng: [latitude, longitude], time: now });
         crumbs = crumbs.filter(c => now - c.time < FIVE_MINUTES);
         breadcrumbLayer.clearLayers();
         crumbs.forEach(c => {
             L.circleMarker(c.latlng, { radius: 3, color: '#00FFFF', fillOpacity: 0.8, stroke: false }).addTo(breadcrumbLayer);
         });
+
         if (accuracy > 50) return;
         document.getElementById('speed-val').innerText = fmt(speed * MPS_TO_MPH, 1);
         document.getElementById('elev-val').innerText = fmt(altitude * METERS_TO_FEET, 0);
@@ -168,8 +169,30 @@
         snappedMarker = L.circleMarker([0,0], { stroke: false, fillOpacity: 1, fillColor: '#FF9F00', radius: 6, zIndexOffset: 1500 }).addTo(map);
 
         const ctx = document.getElementById('elevationChart').getContext('2d');
+        
+        // Vertical Line Plugin for Elevation Graph
+        const verticalLinePlugin = {
+            id: 'verticalLine',
+            afterDatasetsDraw(chart) {
+                if (currentRouteDist === 0) return;
+                const {ctx, chartArea: {top, bottom}, scales: {x}} = chart;
+                const xPos = x.getPixelForValue(currentRouteDist);
+                if (xPos >= chart.chartArea.left && xPos <= chart.chartArea.right) {
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.strokeStyle = '#000';
+                    ctx.lineWidth = 2;
+                    ctx.moveTo(xPos, top);
+                    ctx.lineTo(xPos, bottom);
+                    ctx.stroke();
+                    ctx.restore();
+                }
+            }
+        };
+
         chart = new Chart(ctx, {
             type: 'line',
+            plugins: [verticalLinePlugin],
             data: { 
                 datasets: [
                     { 
@@ -178,8 +201,7 @@
                             borderColor: c => getGradeColor(c.p0DataIndex),
                             backgroundColor: c => getGradeColor(c.p0DataIndex, 0.4)
                         }
-                    }, 
-                    { id:'user-pos', data:[], pointRadius:6, pointBackgroundColor:'#FF9F00', showLine:false }
+                    }
                 ]
             },
             options: { 
@@ -264,16 +286,17 @@
         if (!routeGeoJson) return;
         const userPt = turf.point([lng, lat]);
         const snapped = turf.nearestPointOnLine(routeGeoJson, userPt, {units: 'miles'});
-        const curDist = snapped.properties.location;
+        currentRouteDist = snapped.properties.location;
         snappedMarker.setLatLng([snapped.geometry.coordinates[1], snapped.geometry.coordinates[0]]);
-        targetHeading = turf.bearing(turf.along(routeGeoJson, curDist, {units:'miles'}), turf.along(routeGeoJson, curDist + 0.04, {units:'miles'}));
-        const e1 = getElevAtDist(curDist), e2 = getElevAtDist(curDist + 0.01);
+        targetHeading = turf.bearing(turf.along(routeGeoJson, currentRouteDist, {units:'miles'}), turf.along(routeGeoJson, currentRouteDist + 0.04, {units:'miles'}));
+        const e1 = getElevAtDist(currentRouteDist), e2 = getElevAtDist(currentRouteDist + 0.01);
         document.getElementById('heading-val').innerText = fmt((targetHeading + 360) % 360, 0) + "°";
         document.getElementById('grade-val').innerText = fmt(((e2 - e1) / (0.01 * 5280)) * 100, 1);
-        document.getElementById('remain-val').innerText = fmt(Math.max(0, totalDist - curDist), 1);
-        chart.options.scales.x.min = curDist;
-        chart.options.scales.x.max = curDist + CHART_WINDOW_MI;
-        chart.data.datasets[1].data = [{ x: curDist, y: e1 }];
+        document.getElementById('remain-val').innerText = fmt(Math.max(0, totalDist - currentRouteDist), 1);
+        
+        // Elevation Graph Range: -0.2mi to +0.8mi
+        chart.options.scales.x.min = currentRouteDist - 0.2;
+        chart.options.scales.x.max = currentRouteDist + 0.8;
         chart.update('none'); 
     }
 
