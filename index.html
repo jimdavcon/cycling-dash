@@ -106,7 +106,7 @@
 </div>
 
 <script>
-    let map, chart, userMarker, snappedMarker, breadcrumbLayer, routeLayer;
+    let map, chart, userMarker, snappedMarker, breadcrumbLayer, routeLayer, startMarker, endMarker;
     let masterCoords = [], routeGeoJson = null, kmlRouteLine = null;
     let crumbs = [], routeElevData = [], segmentColors = [];
     let isFollowing = true, isRouteUp = false; 
@@ -114,7 +114,7 @@
     let lastGpsTick = 0, flashPhase = false;
     
     const METERS_TO_FEET = 3.28084, MPS_TO_MPH = 2.23694;
-    const FIVE_MINUTES = 300000; // Restored constant
+    const FIVE_MINUTES = 300000;
     const fmt = (val, dec = 0) => (val === null || isNaN(val) || val === undefined) ? "---" : Number(val).toFixed(dec);
 
     function updateTimeAndHeartbeat() {
@@ -145,7 +145,6 @@
         lastValidLat = latitude; lastValidLng = longitude;
         document.getElementById('accuracy-box').innerText = `GPS: ±${Math.round(accuracy * METERS_TO_FEET)}ft`;
         
-        // Breadcrumb Trail logic restored with constant
         crumbs.push({ latlng: [latitude, longitude], time: now });
         crumbs = crumbs.filter(c => now - c.time < FIVE_MINUTES);
         breadcrumbLayer.clearLayers();
@@ -165,12 +164,15 @@
         L.tileLayer('https://{s}.tile.osm.org/{z}/{x}/{y}.png').addTo(map);
         routeLayer = L.layerGroup().addTo(map);
         breadcrumbLayer = L.layerGroup().addTo(map);
-        userMarker = L.circleMarker([0,0], { stroke: true, color: '#fff', weight: 2, fillOpacity: 1, fillColor: '#00FFFF', radius: 8, zIndexOffset: 2000 }).addTo(map);
-        snappedMarker = L.circleMarker([0,0], { stroke: false, fillOpacity: 1, fillColor: '#FF9F00', radius: 6, zIndexOffset: 1500 }).addTo(map);
+        
+        // Z-Index Management: User (Highest) > Snapped > Route Line
+        userMarker = L.circleMarker([0,0], { stroke: true, color: '#fff', weight: 2, fillOpacity: 1, fillColor: '#00FFFF', radius: 8, zIndexOffset: 4000 }).addTo(map);
+        snappedMarker = L.circleMarker([0,0], { stroke: true, color: '#000', weight: 1, fillOpacity: 1, fillColor: '#FF9F00', radius: 6, zIndexOffset: 3000 }).addTo(map);
+        
+        startMarker = L.circleMarker([0,0], { color: '#2ecc71', fillOpacity: 0.9, radius: 8, zIndexOffset: 2500 });
+        endMarker = L.circleMarker([0,0], { color: '#e74c3c', fillOpacity: 0.9, radius: 8, zIndexOffset: 2500 });
 
         const ctx = document.getElementById('elevationChart').getContext('2d');
-        
-        // Vertical Line Plugin for Elevation Graph
         const verticalLinePlugin = {
             id: 'verticalLine',
             afterDatasetsDraw(chart) {
@@ -178,39 +180,21 @@
                 const {ctx, chartArea: {top, bottom}, scales: {x}} = chart;
                 const xPos = x.getPixelForValue(currentRouteDist);
                 if (xPos >= chart.chartArea.left && xPos <= chart.chartArea.right) {
-                    ctx.save();
-                    ctx.beginPath();
-                    ctx.strokeStyle = '#000';
-                    ctx.lineWidth = 2;
-                    ctx.moveTo(xPos, top);
-                    ctx.lineTo(xPos, bottom);
-                    ctx.stroke();
-                    ctx.restore();
+                    ctx.save(); ctx.beginPath(); ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+                    ctx.moveTo(xPos, top); ctx.lineTo(xPos, bottom); ctx.stroke(); ctx.restore();
                 }
             }
         };
 
         chart = new Chart(ctx, {
-            type: 'line',
-            plugins: [verticalLinePlugin],
-            data: { 
-                datasets: [
-                    { 
-                        id:'route', data:[], stepped: 'middle', fill: true, pointRadius: 0, borderWidth: 1,
-                        segment: {
-                            borderColor: c => getGradeColor(c.p0DataIndex),
-                            backgroundColor: c => getGradeColor(c.p0DataIndex, 0.4)
-                        }
-                    }
-                ]
-            },
-            options: { 
-                responsive:true, maintainAspectRatio:false, layout: { padding: 0 },
+            type: 'line', plugins: [verticalLinePlugin],
+            data: { datasets: [{ id:'route', data:[], stepped: 'middle', fill: true, pointRadius: 0, borderWidth: 1,
+                segment: { borderColor: c => getGradeColor(c.p0DataIndex), backgroundColor: c => getGradeColor(c.p0DataIndex, 0.4) }
+            }]},
+            options: { responsive:true, maintainAspectRatio:false, layout: { padding: 0 },
                 plugins:{ legend:false, tooltip: false }, animation:false, 
-                scales:{
-                    x:{ type:'linear', display: true, ticks: { font: { size: 9 }, padding: 2 } }, 
-                    y:{ grace:'15%', beginAtZero: false, ticks: { font: { size: 9 }, padding: 2 } }
-                }
+                scales:{ x:{ type:'linear', display: true, ticks: { font: { size: 9 } } }, 
+                         y:{ grace:'15%', beginAtZero: false, ticks: { font: { size: 9 } } } }
             }
         });
 
@@ -278,8 +262,13 @@
         totalDist = d;
         chart.data.datasets[0].data = routeElevData;
         chart.update();
+        
         routeLayer.clearLayers();
-        kmlRouteLine = L.polyline(processed.map(c => [c[1], c[0]]), { color: '#444', weight: 4, opacity: 0.6, dashArray: '10, 10' }).addTo(routeLayer);
+        kmlRouteLine = L.polyline(processed.map(c => [c[1], c[0]]), { color: '#444', weight: 4, opacity: 0.5, dashArray: '10, 10' }).addTo(routeLayer);
+        
+        // Setup Start/End points
+        startMarker.setLatLng([processed[0][1], processed[0][0]]).addTo(routeLayer);
+        endMarker.setLatLng([processed[processed.length-1][1], processed[processed.length-1][0]]).addTo(routeLayer);
     }
 
     function updateRouteContext(lat, lng) {
@@ -293,8 +282,6 @@
         document.getElementById('heading-val').innerText = fmt((targetHeading + 360) % 360, 0) + "°";
         document.getElementById('grade-val').innerText = fmt(((e2 - e1) / (0.01 * 5280)) * 100, 1);
         document.getElementById('remain-val').innerText = fmt(Math.max(0, totalDist - currentRouteDist), 1);
-        
-        // Elevation Graph Range: -0.2mi to +0.8mi
         chart.options.scales.x.min = currentRouteDist - 0.2;
         chart.options.scales.x.max = currentRouteDist + 0.8;
         chart.update('none'); 
